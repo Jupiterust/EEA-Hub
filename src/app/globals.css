@@ -1,0 +1,116 @@
+@import "tailwindcss";
+
+:root {
+  --background: #212733;
+  --foreground: #e8ecf1;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-bg: #212733;
+  --color-surface: #2a3140;
+  --color-elevated: #333b4c;
+  --color-border: #3a4250;
+  --color-text-primary: #e8ecf1;
+  --color-text-secondary: #9aa4b2;
+  --color-primary: #4fd1c5;
+  --color-secondary: #7ccacd;
+  --color-accent: #6d96b4;
+  --color-success: #6dab70;
+  --color-gold: #c4ac60;
+  --color-danger: #d97676;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+html {
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-height: 100vh;
+  background:
+    radial-gradient(circle at top left, rgba(79, 209, 197, 0.12), transparent 28rem),
+    radial-gradient(circle at bottom right, rgba(109, 150, 180, 0.1), transparent 30rem),
+    #212733;
+  color: var(--foreground);
+  font-family: Arial, Helvetica, sans-serif;
+}
+
+a {
+  color: inherit;
+  text-decoration: none;
+}
+
+button,
+input,
+textarea,
+select {
+  font: inherit;
+}
+
+.prose-doc {
+  color: #e8ecf1;
+  line-height: 1.8;
+}
+
+.prose-doc h1,
+.prose-doc h2,
+.prose-doc h3 {
+  margin-top: 1.5rem;
+  margin-bottom: 0.75rem;
+  color: #e8ecf1;
+  font-weight: 800;
+}
+
+.prose-doc h1 {
+  font-size: 2rem;
+}
+
+.prose-doc h2 {
+  font-size: 1.5rem;
+  border-bottom: 1px solid #3a4250;
+  padding-bottom: 0.4rem;
+}
+
+.prose-doc h3 {
+  font-size: 1.2rem;
+}
+
+.prose-doc p,
+.prose-doc ul,
+.prose-doc ol,
+.prose-doc pre {
+  margin-bottom: 1rem;
+}
+
+.prose-doc code {
+  border-radius: 0.35rem;
+  background: #333b4c;
+  padding: 0.1rem 0.35rem;
+  color: #4fd1c5;
+}
+
+.prose-doc pre {
+  overflow-x: auto;
+  border-radius: 0.5rem;
+  border: 1px solid #3a4250;
+  background: #1b202a;
+  padding: 1rem;
+  color: #e8ecf1;
+}
+
+.prose-doc pre code {
+  background: transparent;
+  color: inherit;
+  padding: 0;
+}
+
+::selection {
+  background: rgba(79, 209, 197, 0.28);
+}

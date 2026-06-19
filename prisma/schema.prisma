@@ -1,0 +1,233 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum UserRole {
+  MEMBER
+  LEADER
+  ADMIN
+}
+
+enum UserStatus {
+  PENDING
+  ACTIVE
+  BANNED
+}
+
+enum Division {
+  SOFTWARE
+  ANALOG
+  GENERAL
+}
+
+enum Team {
+  CONTROL
+  VISION
+  FPGA
+  HARDWARE
+  GENERAL
+}
+
+enum InviteStatus {
+  ACTIVE
+  REVOKED
+  EXPIRED
+}
+
+enum AssignmentStatus {
+  OPEN
+  CLOSED
+}
+
+enum SubmissionVerdict {
+  UNREVIEWED
+  PASS
+  FAIL
+}
+
+enum ReportStatus {
+  OPEN
+  RESOLVED
+  DISMISSED
+}
+
+model User {
+  id             String    @id @default(cuid())
+  username       String    @unique
+  email          String?   @unique
+  passwordHash   String
+  realName       String
+  role           UserRole  @default(MEMBER)
+  status         UserStatus @default(PENDING)
+  division       Division
+  team           Team
+  bannedReason   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  approvedAt     DateTime?
+  approvedById   String?
+  approvedBy     User?     @relation("Approvals", fields: [approvedById], references: [id])
+  approvals      User[]    @relation("Approvals")
+  inviteCodeId   String?
+  inviteCode     InviteCode? @relation("InviteCodeUses", fields: [inviteCodeId], references: [id])
+  createdInvites InviteCode[] @relation("InviteCodeCreators")
+  docs           TechDoc[]
+  docVersions    DocVersion[]
+  posts          ForumPost[]
+  replies        ForumReply[]
+  assignments    Assignment[]
+  submissions    Submission[]
+  reports        Report[]  @relation("Reporter")
+  auditLogs       AuditLog[]
+}
+
+model InviteCode {
+  id          String       @id @default(cuid())
+  codeHash    String       @unique
+  label       String
+  maxUses     Int
+  usedCount   Int          @default(0)
+  expiresAt   DateTime
+  status      InviteStatus @default(ACTIVE)
+  createdAt   DateTime     @default(now())
+  createdById String?
+  createdBy   User?        @relation("InviteCodeCreators", fields: [createdById], references: [id])
+  users       User[]       @relation("InviteCodeUses")
+}
+
+model TechDoc {
+  id          String     @id @default(cuid())
+  title       String
+  slug        String     @unique
+  excerpt     String?
+  content     String
+  division    Division   @default(GENERAL)
+  team        Team       @default(GENERAL)
+  path        String
+  order       Int        @default(0)
+  published   Boolean    @default(true)
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+  authorId    String
+  author      User       @relation(fields: [authorId], references: [id])
+  versions    DocVersion[]
+
+  @@index([division, team])
+  @@index([title])
+}
+
+model DocVersion {
+  id        String   @id @default(cuid())
+  docId     String
+  doc       TechDoc  @relation(fields: [docId], references: [id], onDelete: Cascade)
+  title     String
+  content   String
+  createdAt DateTime @default(now())
+  editorId  String
+  editor    User     @relation(fields: [editorId], references: [id])
+}
+
+model ForumPost {
+  id             String     @id @default(cuid())
+  title          String
+  content        String
+  division       Division   @default(GENERAL)
+  team           Team       @default(GENERAL)
+  tags           String[]
+  imageUrls      String[]   @default([])
+  isAnonymous    Boolean    @default(false)
+  isSolved       Boolean    @default(false)
+  solutionReplyId String?
+  createdAt      DateTime   @default(now())
+  updatedAt      DateTime   @updatedAt
+  authorId       String
+  author         User       @relation(fields: [authorId], references: [id])
+  replies        ForumReply[]
+  reports        Report[]
+
+  @@index([division, team])
+  @@index([title])
+}
+
+model ForumReply {
+  id           String    @id @default(cuid())
+  content      String
+  imageUrls    String[]  @default([])
+  isAnonymous  Boolean   @default(false)
+  isAccepted   Boolean   @default(false)
+  createdAt    DateTime  @default(now())
+  updatedAt    DateTime  @updatedAt
+  postId       String
+  post         ForumPost @relation(fields: [postId], references: [id], onDelete: Cascade)
+  authorId     String
+  author       User      @relation(fields: [authorId], references: [id])
+  reports      Report[]
+}
+
+model Assignment {
+  id          String           @id @default(cuid())
+  title       String
+  description String
+  division    Division
+  team        Team
+  dueAt       DateTime
+  status      AssignmentStatus @default(OPEN)
+  attachmentUrl String?
+  attachmentName String?
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+  authorId    String
+  author      User             @relation(fields: [authorId], references: [id])
+  submissions Submission[]
+
+  @@index([division, team])
+}
+
+model Submission {
+  id            String            @id @default(cuid())
+  assignmentId  String
+  assignment    Assignment        @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+  studentId     String
+  student       User              @relation(fields: [studentId], references: [id])
+  fileUrl       String
+  fileName      String
+  fileSize      Int
+  mimeType      String
+  submittedAt   DateTime          @default(now())
+  isLate        Boolean
+  feedback      String?
+  score         Int?
+  verdict       SubmissionVerdict @default(UNREVIEWED)
+  reviewedAt    DateTime?
+  reviewerId    String?
+
+  @@index([assignmentId, studentId])
+}
+
+model Report {
+  id          String       @id @default(cuid())
+  reason      String
+  status      ReportStatus @default(OPEN)
+  createdAt   DateTime     @default(now())
+  reporterId  String
+  reporter    User         @relation("Reporter", fields: [reporterId], references: [id])
+  postId      String?
+  post        ForumPost?   @relation(fields: [postId], references: [id], onDelete: Cascade)
+  replyId     String?
+  reply       ForumReply?  @relation(fields: [replyId], references: [id], onDelete: Cascade)
+}
+
+model AuditLog {
+  id        String   @id @default(cuid())
+  action    String
+  target    String
+  metadata  Json?
+  createdAt DateTime @default(now())
+  actorId   String
+  actor     User     @relation(fields: [actorId], references: [id])
+}
