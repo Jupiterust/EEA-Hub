@@ -45,7 +45,7 @@ export function ImageLightbox({
             <>
               <button
                 type="button"
-                onClick={() => setActive((active + images.length - 1) % images.length)}
+                onClick={() => setActive((prev) => ((prev ?? 0) + images.length - 1) % images.length)}
                 className={`${secondaryButtonClass} absolute left-4 top-1/2 -translate-y-1/2 px-3`}
                 aria-label="上一张"
               >
@@ -53,7 +53,7 @@ export function ImageLightbox({
               </button>
               <button
                 type="button"
-                onClick={() => setActive((active + 1) % images.length)}
+                onClick={() => setActive((prev) => ((prev ?? 0) + 1) % images.length)}
                 className={`${secondaryButtonClass} absolute right-4 top-1/2 -translate-y-1/2 px-3`}
                 aria-label="下一张"
               >
