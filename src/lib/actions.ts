@@ -668,3 +668,109 @@ export async function deleteReplyAction(formData: FormData) {
 
   redirectWithSuccess(`/forum/${postId}`, "回复已删除");
 }
+
+export async function acceptReplyAction(formData: FormData) {
+  const postId = stringValue(formData, "postId");
+  const replyId = stringValue(formData, "replyId");
+  const returnTo = safeReturnTo(formData, `/forum/${postId}`);
+  try {
+    const user = await requireUser();
+    const [post, reply] = await Promise.all([
+      prisma.forumPost.findUniqueOrThrow({ where: { id: postId }, select: { authorId: true, solutionReplyId: true } }),
+      prisma.forumReply.findUniqueOrThrow({ where: { id: replyId }, select: { postId: true } }),
+    ]);
+    if (post.authorId !== user.id) throw new Error("只有楼主才能采纳最佳答案");
+    if (reply.postId !== postId) throw new Error("回复不属于该帖子");
+
+    await prisma.$transaction(async (tx) => {
+      if (post.solutionReplyId && post.solutionReplyId !== replyId) {
+        await tx.forumReply.update({ where: { id: post.solutionReplyId }, data: { isAccepted: false } });
+      }
+      await tx.forumReply.update({ where: { id: replyId }, data: { isAccepted: true } });
+      await tx.forumPost.update({ where: { id: postId }, data: { solutionReplyId: replyId, isSolved: true } });
+    });
+    revalidatePath(`/forum/${postId}`);
+    revalidatePath("/forum");
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "采纳失败，请稍后重试"));
+  }
+  redirect(returnTo);
+}
+
+export async function unacceptReplyAction(formData: FormData) {
+  const postId = stringValue(formData, "postId");
+  const replyId = stringValue(formData, "replyId");
+  const returnTo = safeReturnTo(formData, `/forum/${postId}`);
+  try {
+    const user = await requireUser();
+    const post = await prisma.forumPost.findUniqueOrThrow({ where: { id: postId }, select: { authorId: true } });
+    if (post.authorId !== user.id) throw new Error("只有楼主才能操作最佳答案");
+    await prisma.$transaction([
+      prisma.forumReply.update({ where: { id: replyId }, data: { isAccepted: false } }),
+      prisma.forumPost.update({ where: { id: postId }, data: { solutionReplyId: null } }),
+    ]);
+    revalidatePath(`/forum/${postId}`);
+    revalidatePath("/forum");
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "操作失败，请稍后重试"));
+  }
+  redirect(returnTo);
+}
+
+export async function toggleSolvedAction(formData: FormData) {
+  const postId = stringValue(formData, "postId");
+  const returnTo = safeReturnTo(formData, `/forum/${postId}`);
+  try {
+    const user = await requireUser();
+    const post = await prisma.forumPost.findUniqueOrThrow({ where: { id: postId }, select: { authorId: true, isSolved: true } });
+    if (post.authorId !== user.id) throw new Error("只有楼主才能切换解决状态");
+    await prisma.forumPost.update({ where: { id: postId }, data: { isSolved: !post.isSolved } });
+    revalidatePath(`/forum/${postId}`);
+    revalidatePath("/forum");
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "操作失败，请稍后重试"));
+  }
+  redirect(returnTo);
+}
+
+export async function togglePostLikeAction(formData: FormData) {
+  const postId = stringValue(formData, "postId");
+  const returnTo = safeReturnTo(formData, `/forum/${postId}`);
+  try {
+    const user = await requireUser();
+    const existing = await prisma.postLike.findUnique({
+      where: { userId_postId: { userId: user.id, postId } },
+    });
+    if (existing) {
+      await prisma.postLike.delete({ where: { userId_postId: { userId: user.id, postId } } });
+    } else {
+      await prisma.postLike.create({ data: { userId: user.id, postId } });
+    }
+    revalidatePath(`/forum/${postId}`);
+    revalidatePath("/forum");
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "点赞操作失败，请稍后重试"));
+  }
+  redirect(returnTo);
+}
+
+export async function toggleReplyLikeAction(formData: FormData) {
+  const replyId = stringValue(formData, "replyId");
+  const postId = stringValue(formData, "postId");
+  const returnTo = safeReturnTo(formData, `/forum/${postId}`);
+  try {
+    const user = await requireUser();
+    const existing = await prisma.replyLike.findUnique({
+      where: { userId_replyId: { userId: user.id, replyId } },
+    });
+    if (existing) {
+      await prisma.replyLike.delete({ where: { userId_replyId: { userId: user.id, replyId } } });
+    } else {
+      await prisma.replyLike.create({ data: { userId: user.id, replyId } });
+    }
+    revalidatePath(`/forum/${postId}`);
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "点赞操作失败，请稍后重试"));
+  }
+  redirect(returnTo);
+}

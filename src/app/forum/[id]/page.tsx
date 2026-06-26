@@ -1,7 +1,8 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { CheckCircle, ThumbsUp } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { deletePostAction, deleteReplyAction, replyAction, reportAction, updateReplyAction } from "@/lib/actions";
+import { acceptReplyAction, deletePostAction, deleteReplyAction, replyAction, reportAction, togglePostLikeAction, toggleReplyLikeAction, toggleSolvedAction, unacceptReplyAction, updateReplyAction } from "@/lib/actions";
 import { requireUser } from "@/lib/authz";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { FeedbackBanner } from "@/components/feedback-banner";
@@ -27,8 +28,14 @@ export default async function ForumDetailPage({
     where: { id },
     include: {
       author: { select: { realName: true, username: true } },
+      _count: { select: { postLikes: true } },
+      postLikes: { where: { userId: user.id }, select: { userId: true } },
       replies: {
-        include: { author: { select: { realName: true, username: true } } },
+        include: {
+          author: { select: { realName: true, username: true } },
+          _count: { select: { replyLikes: true } },
+          replyLikes: { where: { userId: user.id }, select: { userId: true } },
+        },
         orderBy: { createdAt: "asc" },
       },
     },
@@ -39,6 +46,8 @@ export default async function ForumDetailPage({
 
   const isPostAuthor = user.id === post.authorId;
   const canDeletePost = isPostAuthor || user.role === "ADMIN";
+  const userLikedPost = post.postLikes.length > 0;
+  const postLikeCount = post._count.postLikes;
 
   const anonymousLabels = new Map<string, string>();
   let anonymousIndex = 0;
@@ -55,6 +64,12 @@ export default async function ForumDetailPage({
       anonymousIndex += 1;
     }
   }
+
+  // Accepted reply first, then by createdAt asc
+  const sortedReplies = [...post.replies].sort((a, b) => {
+    if (a.isAccepted !== b.isAccepted) return a.isAccepted ? -1 : 1;
+    return a.createdAt.getTime() - b.createdAt.getTime();
+  });
 
   const editReplyId = query.editReply;
 
@@ -97,7 +112,35 @@ export default async function ForumDetailPage({
               buttonClassName={cn(deleteButtonClass, "px-3 py-1.5 text-xs")}
             />
           )}
-          <form action={reportAction} className="ml-auto flex gap-2">
+          {isPostAuthor && (
+            <form action={toggleSolvedAction}>
+              <input type="hidden" name="postId" value={post.id} />
+              <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+              <SubmitButton
+                variant="secondary"
+                pendingText="..."
+                className="px-3 py-1.5 text-xs"
+              >
+                {post.isSolved ? "取消已解决" : "标记已解决"}
+              </SubmitButton>
+            </form>
+          )}
+          <form action={togglePostLikeAction} className="ml-auto">
+            <input type="hidden" name="postId" value={post.id} />
+            <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+            <SubmitButton
+              variant="secondary"
+              pendingText="..."
+              className={cn(
+                "gap-1.5 px-3 py-1.5 text-xs",
+                userLikedPost && "border-success/40 bg-success/10 text-success hover:bg-success/20",
+              )}
+            >
+              <ThumbsUp className="size-3.5" />
+              {userLikedPost ? "已点赞" : "点赞"} {postLikeCount > 0 ? postLikeCount : ""}
+            </SubmitButton>
+          </form>
+          <form action={reportAction} className="flex gap-2">
             <input type="hidden" name="postId" value={post.id} />
             <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
             <input name="reason" placeholder="举报原因" className={`${inputClass} text-xs py-1.5`} />
@@ -108,19 +151,36 @@ export default async function ForumDetailPage({
 
       <section className="mt-6 grid gap-3">
         <h2 className="text-xl font-black text-text-primary">回复</h2>
-        {post.replies.map((reply) => {
+        {sortedReplies.map((reply) => {
           const replyAuthorLabel = reply.isAnonymous
             ? (anonymousLabels.get(reply.authorId) ?? "匿名用户")
             : reply.author.realName;
           const isReplyAuthor = user.id === reply.authorId;
           const canDeleteReply = isReplyAuthor || user.role === "ADMIN";
           const isEditing = editReplyId === reply.id && isReplyAuthor;
+          const userLikedReply = reply.replyLikes.length > 0;
+          const replyLikeCount = reply._count.replyLikes;
 
           return (
-            <div key={reply.id} className="rounded-lg border border-border bg-surface p-5">
-              <p className="text-sm text-text-secondary">
-                {replyAuthorLabel} · {reply.createdAt.toLocaleString("zh-CN")}
-              </p>
+            <div
+              key={reply.id}
+              className={cn(
+                "rounded-lg border bg-surface p-5",
+                reply.isAccepted
+                  ? "border-success/40 ring-1 ring-success/20"
+                  : "border-border",
+              )}
+            >
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm text-text-secondary">
+                  {replyAuthorLabel} · {reply.createdAt.toLocaleString("zh-CN")}
+                </span>
+                {reply.isAccepted && (
+                  <span className="inline-flex items-center gap-1 rounded-md bg-success/15 px-2 py-0.5 text-xs font-semibold text-success ring-1 ring-success/35">
+                    <CheckCircle className="size-3.5" /> 最佳答案
+                  </span>
+                )}
+              </div>
 
               {isEditing ? (
                 <form action={updateReplyAction} className="mt-3 grid gap-3">
@@ -173,8 +233,45 @@ export default async function ForumDetailPage({
                     buttonClassName={deleteLinkClass}
                   />
                 )}
+                {isPostAuthor && !isEditing && (
+                  reply.isAccepted ? (
+                    <form action={unacceptReplyAction}>
+                      <input type="hidden" name="replyId" value={reply.id} />
+                      <input type="hidden" name="postId" value={post.id} />
+                      <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                      <SubmitButton variant="secondary" pendingText="..." className="text-xs px-2 py-1 border-success/40 text-success bg-success/10 hover:bg-success/20">
+                        取消采纳
+                      </SubmitButton>
+                    </form>
+                  ) : (
+                    <form action={acceptReplyAction}>
+                      <input type="hidden" name="replyId" value={reply.id} />
+                      <input type="hidden" name="postId" value={post.id} />
+                      <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                      <SubmitButton variant="secondary" pendingText="..." className="text-xs px-2 py-1">
+                        采纳为最佳答案
+                      </SubmitButton>
+                    </form>
+                  )
+                )}
+                <form action={toggleReplyLikeAction} className="ml-auto">
+                  <input type="hidden" name="replyId" value={reply.id} />
+                  <input type="hidden" name="postId" value={post.id} />
+                  <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                  <SubmitButton
+                    variant="secondary"
+                    pendingText="..."
+                    className={cn(
+                      "gap-1 px-2 py-1 text-xs",
+                      userLikedReply && "border-success/40 bg-success/10 text-success hover:bg-success/20",
+                    )}
+                  >
+                    <ThumbsUp className="size-3" />
+                    {replyLikeCount > 0 ? replyLikeCount : ""}
+                  </SubmitButton>
+                </form>
                 {!isEditing && (
-                  <form action={reportAction} className="ml-auto flex gap-2">
+                  <form action={reportAction} className="flex gap-2">
                     <input type="hidden" name="replyId" value={reply.id} />
                     <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
                     <input name="reason" placeholder="举报原因" className={`${inputClass} text-xs py-1`} />

@@ -1,54 +1,86 @@
-已确认的根因（用开发者工具实测得出，不要再怀疑别的原因）
+# 电协 Hub —— 论坛浏览/互动优化需求
 
-在论坛帖子详情页 src/app/forum/[id]/page.tsx，帖子级的"编辑帖子"和"删除帖子"两个按钮尺寸不一致：
+## 背景
 
+Next.js (App Router, TypeScript) + Prisma + PostgreSQL + Auth.js + Tailwind + Supabase 的电协内部网站（EEA_Hub），暗色主题，已上线。论坛已有功能：实名/匿名发帖回帖（匿名采用"帖内编号"机制，匿名帖在公开页对所有人显示"匿名楼主/匿名用户A/B/C"，数据库保留 authorId 用于追责但不在公开界面暴露）、标签、举报、已解决标记、编辑/删除。
 
-编辑帖子 是一个 <Link>（渲染为 <a>），实测尺寸 75.02 × 30
-删除帖子 是 ConfirmDelete 组件内的 <button>，实测尺寸 91.28 × 38
+本次为论坛增加三个功能：**列表排序、采纳最佳答案、点赞**。
 
+---
 
-两者用的 className 完全一样（都是 cn(editButtonClass / deleteButtonClass, "px-3 py-1.5 text-xs")），但因为浏览器对 <button> 和 <a> 元素施加了不同的原生默认样式（默认 font-size、box-sizing、padding、line-height 等），导致 <button> 比 <a> 大。
+## 一、论坛列表排序
 
-已经尝试过加 appearance-none 和 leading-none，无效，按钮依然不一致。所以需要用更强制的方式。
+在论坛列表页（/forum）增加排序切换，用户可在以下三种排序方式间切换：
 
-要求的解法：用固定高度 + box-border + 重置，强制两种元素渲染一致
+1. 最新发布（按帖子创建时间倒序）—— 默认排序
+2. 最多回复（按帖子的回复数量倒序）
+3. 最多点赞（按帖子的点赞数量倒序）
 
-请修改 src/components/ui.tsx 中的 editButtonClass 和 deleteButtonClass，做到无论元素是 <a> 还是 <button>，渲染出的盒子尺寸完全相同。具体措施（全部要做）：
+实现要点：
+- 排序方式通过 URL 查询参数控制（如 /forum?sort=latest|replies|likes），便于分享和刷新保持
+- 列表顶部提供清晰的排序切换控件（标签页/下拉/按钮组均可，风格符合暗色主题）
+- 每个帖子卡片建议显示回复数和点赞数，让排序结果直观
 
+---
 
-固定高度：用 h-9（或合适的固定高度）替代 py-2 这种垂直 padding，配合 inline-flex items-center justify-center 让文字垂直居中。固定高度能消除 <button> 和 <a> 的高度差异。
-box-border：加 box-border，确保 border 算进固定高度内，两种元素一致。
-重置 button 原生样式：保留 appearance-none，并确保 <button> 的 font-size、line-height、font-family 都被显式设定（不要依赖继承），与 <a> 完全一致。可加 leading-none，并确保 text-sm（或实际使用的字号）被强制应用。
-强制字号一致：实测两者字号渲染不同（button 字更大），这说明 <button> 的 font-size 没有正确继承。请确保 className 里的字号 class（如 text-sm/text-xs）对 <button> 实际生效——必要时在 ConfirmDelete 组件内部的 <button> 上也显式补充字号，或在全局 CSS 里对 button { font-size: inherit; font-family: inherit; line-height: inherit; } 做重置。
-全局 button 重置（推荐，最彻底）：在全局样式文件（如 globals.css 或 Tailwind 的 base layer）中加入对 button 元素的重置，让 button 默认继承父级的 font 属性：
+## 二、采纳最佳答案
 
+让提问者（楼主）可以采纳某条回复为"最佳答案"。
 
-css   button {
-     font-family: inherit;
-     font-size: inherit;
-     line-height: inherit;
-   }
+规则：
+- 谁能采纳：仅该帖楼主本人。注意：匿名帖的匿名楼主也能采纳——即当前登录用户 id == 帖子 authorId 时即可采纳（无论是否匿名）。校验在服务端做。
+- 采纳操作：楼主在某条回复上点击"采纳为最佳答案"
+- 效果：
+  - 被采纳回复打上"最佳答案"标记（用成功绿 #6DAB70 高亮）
+  - 被采纳回复在回复列表中置顶或明显高亮
+  - 一个帖子只能有一个最佳答案；楼主可更换（采纳新的取消旧的），也可取消采纳
+- 与"已解决"的关系：采纳后可自动把帖子标记为"已解决"（楼主仍可手动切换）。合理处理联动。
 
-这是最根本的修复——很多 UI 库都这么做。这样所有 <button> 就不会再有"字比周围大"的问题，不只是这两个按钮。
+匿名性注意：采纳操作不得泄露楼主或被采纳者真实身份。被采纳的若是匿名回复，公开页仍显示"匿名用户X + 最佳答案标记"。
 
-验证标准
+---
 
-修改后，请确认：
+## 三、点赞
 
+帖子和回复都支持点赞。
 
-论坛帖子详情页的"编辑帖子"和"删除帖子"两个按钮，高度、字号、padding 完全一致，只有颜色不同（编辑雾蓝 accent，删除红色 danger）
-用浏览器开发者工具检查两个元素的 computed 尺寸应该完全相同（或仅因文字宽度不同而宽度略有差异，但高度和字号必须一致）
-同样的修复要覆盖所有"编辑/删除"成对出现的地方：论坛帖子级按钮、文档详情页、个人主页等
-论坛回复级的"编辑/删除"小链接（editLinkClass / deleteLinkClass）也要保证一致
+规则：
+- 点赞对象：帖子可点赞，回复也可点赞
+- 谁能点：所有登录用户
+- 可取消：同一用户对同一对象再次点击即取消（toggle）
+- 可给自己点赞：允许，不做限制
+- 显示：显示点赞总数；当前用户已点赞的，按钮显示"已点赞"高亮
+- 数据：记录"谁点赞了什么"，支持取消、"是否已点赞"判断，用于"最多点赞"排序
 
+匿名性注意：点赞数公开没问题，但点赞者名单不要公开展示（避免间接暴露匿名互动者身份），只显示数字。
 
-收尾
+---
 
+## 四、数据库 schema
 
-跑 npm run lint 和 npm run build 确保通过
-只改样式相关代码，不要动功能逻辑（编辑/删除的 server action、权限校验都不要改）
+预计需要：
+- 点赞表（如 Like，含 userId + postId 或 replyId + 唯一约束防重复），或你认为合理的结构
+- 回复增加"是否被采纳"标记（如 isAccepted，或帖子上记 acceptedReplyId）
+- 生成对应 migration
 
+---
 
-重点提示
+## 五、技术要求
 
-根因是浏览器对 <button> 元素的原生样式。最干净的修法是在全局 CSS 里对 button 做 font 继承重置（第 5 点），这能一劳永逸解决所有 button 和 a/文字大小不一致的问题，而不是只在单个 class 上打补丁。请优先采用这个方案。
+- 所有写操作走 server action，服务端严格校验权限（采纳仅楼主、点赞需登录）
+- 数据库写入出错给中文友好提示，不要 500
+- UI 符合暗色主题：点赞用图标+计数，最佳答案用成功绿 #6DAB70 高亮
+- schema 变更生成 migration
+- 改完跑 npm run prisma:generate、npm run lint、npm run build，三项全过
+
+## 六、验收要点（自测）
+
+- 列表能在最新/最多回复/最多点赞间切换，结果正确
+- 楼主（含匿名楼主）能采纳/取消/更换最佳答案；非楼主不能采纳（服务端拦截）
+- 点赞能加能取消，能给自己点，计数正确，"最多点赞"排序生效
+- 全程匿名帖不泄露任何真实身份
+
+## 七、本次不做
+
+- 文档优化（左侧目录树、Markdown 美化）放另一批
+- 不做点赞者名单展示、不做通知提醒

@@ -1,18 +1,35 @@
 import Link from "next/link";
-import { MessageSquare, Plus, Search } from "lucide-react";
+import { MessageSquare, Plus, Search, ThumbsUp } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { Badge, secondaryButtonClass } from "@/components/ui";
+import { Badge, cn, secondaryButtonClass } from "@/components/ui";
 import { divisionLabels, teamLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 
+const sortOptions = [
+  { value: "latest", label: "最新发布" },
+  { value: "replies", label: "最多回复" },
+  { value: "likes", label: "最多点赞" },
+] as const;
+
+type SortValue = (typeof sortOptions)[number]["value"];
+
 export default async function ForumPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string }>;
+  searchParams: Promise<{ q?: string; sort?: string }>;
 }) {
   const params = await searchParams;
   const q = params.q?.trim();
+  const sort: SortValue = (params.sort as SortValue) ?? "latest";
+
+  const orderBy =
+    sort === "replies"
+      ? { replies: { _count: "desc" as const } }
+      : sort === "likes"
+        ? { postLikes: { _count: "desc" as const } }
+        : { createdAt: "desc" as const };
+
   const posts = await prisma.forumPost.findMany({
     where: q
       ? {
@@ -25,10 +42,13 @@ export default async function ForumPage({
       : undefined,
     include: {
       author: { select: { realName: true, username: true } },
-      _count: { select: { replies: true } },
+      _count: { select: { replies: true, postLikes: true } },
     },
-    orderBy: { updatedAt: "desc" },
+    orderBy,
   });
+
+  const sortHref = (s: string) =>
+    q ? `/forum?q=${encodeURIComponent(q)}&sort=${s}` : `/forum?sort=${s}`;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
@@ -48,9 +68,27 @@ export default async function ForumPage({
         </div>
         <button className={secondaryButtonClass}>搜索</button>
       </form>
-      <section className="mt-6 grid gap-3">
+
+      <div className="mt-4 flex gap-1">
+        {sortOptions.map((opt) => (
+          <Link
+            key={opt.value}
+            href={sortHref(opt.value)}
+            className={cn(
+              "rounded-md px-3 py-1.5 text-sm font-semibold transition",
+              sort === opt.value
+                ? "bg-primary/20 text-primary"
+                : "text-text-secondary hover:text-text-primary",
+            )}
+          >
+            {opt.label}
+          </Link>
+        ))}
+      </div>
+
+      <section className="mt-4 grid gap-3">
         {posts.map((post) => (
-          <Link key={post.id} href={`/forum/${post.id}`} className="rounded-lg border border-border bg-surface p-5  ">
+          <Link key={post.id} href={`/forum/${post.id}`} className="rounded-lg border border-border bg-surface p-5 transition hover:border-primary/40">
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={post.isSolved ? "green" : "amber"}>{post.isSolved ? "已解决" : "讨论中"}</Badge>
               <Badge>{divisionLabels[post.division]}</Badge>
@@ -62,6 +100,7 @@ export default async function ForumPage({
             <div className="mt-4 flex items-center gap-4 text-sm text-text-secondary">
               <span>{post.isAnonymous ? "匿名楼主" : post.author.realName}</span>
               <span className="inline-flex items-center gap-1"><MessageSquare className="size-4" /> {post._count.replies}</span>
+              <span className="inline-flex items-center gap-1"><ThumbsUp className="size-4" /> {post._count.postLikes}</span>
             </div>
           </Link>
         ))}
