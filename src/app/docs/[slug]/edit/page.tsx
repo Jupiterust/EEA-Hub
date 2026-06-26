@@ -5,9 +5,12 @@ import { updateDocAction } from "@/lib/actions";
 import { DivisionTeamSelect } from "@/components/division-team-select";
 import { FeedbackBanner } from "@/components/feedback-banner";
 import { SubmitButton } from "@/components/submit-button";
+import { Tooltip } from "@/components/tooltip";
 import { Field, inputClass } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
+
+const PATH_TIP = "用 '>' 分隔层级，如「新人学习路径>STM32入门>GPIO配置」，文档会出现在左侧目录树的 '部门/小组/新人学习路径>STM32入门>GPIO配置' 下。留空则挂在所属小组下。";
 
 export default async function EditDocPage({
   params,
@@ -41,7 +44,13 @@ export default async function EditDocPage({
           <Field label="标题">
             <input name="title" defaultValue={doc.title} className={inputClass} required />
           </Field>
-          <Field label="目录路径">
+          <Field
+            label={
+              <span className="inline-flex items-center gap-1">
+                目录路径 <Tooltip text={PATH_TIP} />
+              </span>
+            }
+          >
             <input name="path" defaultValue={doc.path} className={inputClass} />
           </Field>
           <DivisionTeamSelect
