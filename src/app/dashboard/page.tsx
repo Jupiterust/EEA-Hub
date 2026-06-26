@@ -1,16 +1,22 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
-import { Badge } from "@/components/ui";
+import { deleteDocAction, deletePostAction, deleteReplyAction } from "@/lib/actions";
+import { ConfirmDelete } from "@/components/confirm-delete";
+import { Badge, editLinkClass, deleteLinkClass } from "@/components/ui";
 import { divisionLabels, roleLabels, statusLabels, teamLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
+
+const itemActionClass = editLinkClass;
+const itemDangerClass = deleteLinkClass;
 
 export default async function DashboardPage() {
   const user = await requireUser();
   const now = new Date();
   const soon = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
-  const [submissions, posts, todos, adminStats] = await Promise.all([
+
+  const [submissions, posts, anonPosts, anonReplies, docs, todos, adminStats] = await Promise.all([
     prisma.submission.findMany({
       where: { studentId: user.id },
       include: { assignment: { select: { id: true, title: true, dueAt: true } } },
@@ -23,6 +29,26 @@ export default async function DashboardPage() {
       orderBy: { updatedAt: "desc" },
       take: 8,
     }),
+    prisma.forumPost.findMany({
+      where: { authorId: user.id, isAnonymous: true },
+      select: { id: true, title: true, updatedAt: true, isSolved: true },
+      orderBy: { updatedAt: "desc" },
+      take: 8,
+    }),
+    prisma.forumReply.findMany({
+      where: { authorId: user.id, isAnonymous: true },
+      include: { post: { select: { id: true, title: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+    }),
+    user.role !== "MEMBER"
+      ? prisma.techDoc.findMany({
+          where: { authorId: user.id },
+          select: { id: true, title: true, slug: true, updatedAt: true, division: true },
+          orderBy: { updatedAt: "desc" },
+          take: 8,
+        })
+      : Promise.resolve([] as { id: string; title: string; slug: string; updatedAt: Date; division: string }[]),
     user.role === "MEMBER"
       ? prisma.assignment.findMany({
           where: {
@@ -46,7 +72,7 @@ export default async function DashboardPage() {
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-      <section className="rounded-lg border border-border bg-surface p-6 ">
+      <section className="rounded-lg border border-border bg-surface p-6">
         <h1 className="text-3xl font-black text-text-primary">个人主页</h1>
         <div className="mt-4 flex flex-wrap gap-2">
           <Badge tone="blue">{user.name}</Badge>
@@ -56,9 +82,10 @@ export default async function DashboardPage() {
           <Badge tone="green">{statusLabels[user.status]}</Badge>
         </div>
       </section>
+
       <section className="mt-6 grid gap-4 lg:grid-cols-3">
         {user.role === "MEMBER" ? (
-          <div className="rounded-lg border border-border bg-surface p-5 ">
+          <div className="rounded-lg border border-border bg-surface p-5">
             <h2 className="text-xl font-black text-text-primary">待办提醒</h2>
             <div className="mt-4 grid gap-3">
               {todos.map((todo) => {
@@ -73,7 +100,7 @@ export default async function DashboardPage() {
             </div>
           </div>
         ) : (
-          <div className="rounded-lg border border-border bg-surface p-5 ">
+          <div className="rounded-lg border border-border bg-surface p-5">
             <h2 className="text-xl font-black text-text-primary">管理概览</h2>
             <div className="mt-4 grid gap-3 text-sm text-text-secondary">
               <p>待审核成员：{adminStats?.[0] ?? 0}</p>
@@ -82,7 +109,8 @@ export default async function DashboardPage() {
             </div>
           </div>
         )}
-        <div className="rounded-lg border border-border bg-surface p-5  lg:col-span-2">
+
+        <div className="rounded-lg border border-border bg-surface p-5 lg:col-span-2">
           <h2 className="text-xl font-black text-text-primary">我的作业记录</h2>
           <div className="mt-4 grid gap-3">
             {submissions.map((item) => (
@@ -93,19 +121,134 @@ export default async function DashboardPage() {
             ))}
           </div>
         </div>
-        <div className="rounded-lg border border-border bg-surface p-5  lg:col-span-3">
-          <h2 className="text-xl font-black text-text-primary">我发布的实名帖子</h2>
+      </section>
+
+      {user.role !== "MEMBER" && (
+        <section className="mt-6 rounded-lg border border-border bg-surface p-5">
+          <h2 className="text-xl font-black text-text-primary">我发布的文档</h2>
           <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            {posts.map((post) => (
-              <Link key={post.id} href={`/forum/${post.id}`} className="rounded-md border border-border p-3 text-sm hover:bg-elevated">
-                <p className="font-semibold text-text-primary">{post.title}</p>
-                <p className="mt-1 text-text-secondary">{post.isSolved ? "已解决" : "讨论中"} · {post.updatedAt.toLocaleString("zh-CN")}</p>
-              </Link>
+            {docs.map((doc) => (
+              <div key={doc.id} className="rounded-md border border-border p-3 text-sm">
+                <Link href={`/docs/${doc.slug}`} className="block font-semibold text-text-primary hover:text-primary">
+                  {doc.title}
+                </Link>
+                <p className="mt-1 text-text-secondary">
+                  {divisionLabels[doc.division as keyof typeof divisionLabels]} · {doc.updatedAt.toLocaleString("zh-CN")}
+                </p>
+                <div className="mt-2 flex gap-3">
+                  <Link href={`/docs/${doc.slug}/edit`} className={itemActionClass}>编辑</Link>
+                  <ConfirmDelete
+                    action={deleteDocAction}
+                    fields={{ docId: doc.id, slug: doc.slug }}
+                    message="确定要删除这篇文档吗？"
+                    buttonLabel="删除"
+                    buttonClassName={itemDangerClass}
+                  />
+                </div>
+              </div>
             ))}
-            {posts.length === 0 ? <p className="text-sm text-text-secondary">暂无实名帖子。匿名帖子不会在个人主页展示。</p> : null}
+            {docs.length === 0 && (
+              <p className="text-sm text-text-secondary col-span-2">暂无发布的文档。</p>
+            )}
           </div>
+        </section>
+      )}
+
+      <section className="mt-6 rounded-lg border border-border bg-surface p-5">
+        <h2 className="text-xl font-black text-text-primary">我发布的实名帖子</h2>
+        <div className="mt-4 grid gap-3 sm:grid-cols-2">
+          {posts.map((post) => (
+            <div key={post.id} className="rounded-md border border-border p-3 text-sm">
+              <Link href={`/forum/${post.id}`} className="block font-semibold text-text-primary hover:text-primary">
+                {post.title}
+              </Link>
+              <p className="mt-1 text-text-secondary">
+                {post.isSolved ? "已解决" : "讨论中"} · {post.updatedAt.toLocaleString("zh-CN")}
+              </p>
+              <div className="mt-2 flex gap-3">
+                <Link href={`/forum/${post.id}/edit`} className={itemActionClass}>编辑</Link>
+                <ConfirmDelete
+                  action={deletePostAction}
+                  fields={{ postId: post.id }}
+                  message="确定要删除这个帖子吗？帖子下的所有回复也会一并删除。"
+                  buttonLabel="删除"
+                  buttonClassName={itemDangerClass}
+                />
+              </div>
+            </div>
+          ))}
+          {posts.length === 0 ? (
+            <p className="text-sm text-text-secondary col-span-2">暂无实名帖子。</p>
+          ) : null}
         </div>
       </section>
+
+      {(anonPosts.length > 0 || anonReplies.length > 0) && (
+        <section className="mt-6 rounded-lg border border-border bg-surface p-5">
+          <h2 className="text-xl font-black text-text-primary">我发布的匿名内容</h2>
+          <p className="mt-1 text-xs text-text-secondary">仅自己可见。在公开页面，这些内容仍以匿名方式显示。</p>
+
+          {anonPosts.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-sm font-bold text-text-secondary">匿名帖子</h3>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                {anonPosts.map((post) => (
+                  <div key={post.id} className="rounded-md border border-border p-3 text-sm">
+                    <Link href={`/forum/${post.id}`} className="block font-semibold text-text-primary hover:text-primary">
+                      {post.title}
+                    </Link>
+                    <p className="mt-1 text-text-secondary">
+                      {post.isSolved ? "已解决" : "讨论中"} · {post.updatedAt.toLocaleString("zh-CN")}
+                    </p>
+                    <div className="mt-2 flex gap-3">
+                      <Link href={`/forum/${post.id}/edit`} className={itemActionClass}>编辑</Link>
+                      <ConfirmDelete
+                        action={deletePostAction}
+                        fields={{ postId: post.id }}
+                        message="确定要删除这个匿名帖子吗？帖子下的所有回复也会一并删除。"
+                        buttonLabel="删除"
+                        buttonClassName={itemDangerClass}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {anonReplies.length > 0 && (
+            <div className="mt-4">
+              <h3 className="text-sm font-bold text-text-secondary">匿名回复</h3>
+              <div className="mt-2 grid gap-3 sm:grid-cols-2">
+                {anonReplies.map((reply) => (
+                  <div key={reply.id} className="rounded-md border border-border p-3 text-sm">
+                    <Link href={`/forum/${reply.post.id}`} className="block font-semibold text-text-primary hover:text-primary truncate">
+                      回帖：{reply.post.title}
+                    </Link>
+                    <p className="mt-1 text-text-secondary line-clamp-2">{reply.content}</p>
+                    <p className="mt-1 text-xs text-text-secondary">{reply.createdAt.toLocaleString("zh-CN")}</p>
+                    <div className="mt-2 flex gap-3">
+                      <Link
+                        href={`/forum/${reply.post.id}?editReply=${reply.id}`}
+                        className={itemActionClass}
+                      >
+                        编辑
+                      </Link>
+                      <ConfirmDelete
+                        action={deleteReplyAction}
+                        fields={{ replyId: reply.id, postId: reply.post.id }}
+                        message="确定要删除这条匿名回复吗？"
+                        buttonLabel="删除"
+                        buttonClassName={itemDangerClass}
+                      />
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

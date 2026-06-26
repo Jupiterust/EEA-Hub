@@ -499,3 +499,172 @@ async function uploadForumImages(formData: FormData, prefix: string) {
   );
   return uploads.map((item) => item.url);
 }
+
+export async function updateDocAction(formData: FormData) {
+  let slug = "";
+  try {
+    const user = await requireLeader();
+    const docId = stringValue(formData, "docId");
+    const doc = await prisma.techDoc.findUniqueOrThrow({ where: { id: docId } });
+    slug = doc.slug;
+
+    if (doc.authorId !== user.id) {
+      throw new Error("无权编辑该文档");
+    }
+
+    const division = divisionEnum.parse(stringValue(formData, "division"));
+    const team = teamEnum.parse(stringValue(formData, "team"));
+    if (!canManageScope(user, { division, team })) {
+      throw new Error("无权将文档范围改为该部门/小组");
+    }
+
+    const title = stringValue(formData, "title");
+    if (!title) throw new Error("请填写文档标题");
+
+    await prisma.techDoc.update({
+      where: { id: docId },
+      data: {
+        title,
+        path: stringValue(formData, "path") || title,
+        excerpt: stringValue(formData, "excerpt"),
+        content: stringValue(formData, "content"),
+        division,
+        team,
+      },
+    });
+
+    revalidatePath(`/docs/${slug}`);
+    revalidatePath("/docs");
+  } catch (error) {
+    redirectWithError(slug ? `/docs/${slug}/edit` : "/docs", friendlyError(error, "文档更新失败,请稍后再试"));
+  }
+
+  redirect(`/docs/${slug}?success=${encodeURIComponent("文档已更新")}`);
+}
+
+export async function deleteDocAction(formData: FormData) {
+  const slug = stringValue(formData, "slug");
+  try {
+    const user = await requireUser();
+    const docId = stringValue(formData, "docId");
+    const doc = await prisma.techDoc.findUniqueOrThrow({ where: { id: docId } });
+
+    if (doc.authorId !== user.id && user.role !== "ADMIN") {
+      throw new Error("无权删除该文档");
+    }
+
+    await prisma.techDoc.delete({ where: { id: docId } });
+    revalidatePath("/docs");
+  } catch (error) {
+    redirectWithError(slug ? `/docs/${slug}` : "/docs", friendlyError(error, "文档删除失败,请稍后再试"));
+  }
+
+  redirect("/docs");
+}
+
+export async function updatePostAction(formData: FormData) {
+  const postId = stringValue(formData, "postId");
+  try {
+    const user = await requireUser();
+    const post = await prisma.forumPost.findUniqueOrThrow({ where: { id: postId } });
+
+    if (post.authorId !== user.id) {
+      throw new Error("无权编辑该帖子");
+    }
+
+    const keepImages = formData
+      .getAll("keepImage")
+      .filter((v): v is string => typeof v === "string");
+    const newImageUrls = await uploadForumImages(formData, `forum/posts/${user.id}`);
+    if (keepImages.length + newImageUrls.length > 9) {
+      throw new Error("最多保留 9 张图片");
+    }
+
+    await prisma.forumPost.update({
+      where: { id: postId },
+      data: {
+        title: stringValue(formData, "title"),
+        content: stringValue(formData, "content"),
+        tags: stringValue(formData, "tags")
+          .split(/[,\s]+/)
+          .filter(Boolean)
+          .slice(0, 8),
+        imageUrls: [...keepImages, ...newImageUrls],
+      },
+    });
+
+    revalidatePath(`/forum/${postId}`);
+    revalidatePath("/forum");
+  } catch (error) {
+    redirectWithError(`/forum/${postId}/edit`, friendlyError(error, "帖子更新失败,请稍后再试"));
+  }
+
+  redirect(`/forum/${postId}?success=${encodeURIComponent("帖子已更新")}`);
+}
+
+export async function deletePostAction(formData: FormData) {
+  const postId = stringValue(formData, "postId");
+  try {
+    const user = await requireUser();
+    const post = await prisma.forumPost.findUniqueOrThrow({ where: { id: postId } });
+
+    if (post.authorId !== user.id && user.role !== "ADMIN") {
+      throw new Error("无权删除该帖子");
+    }
+
+    await prisma.forumPost.delete({ where: { id: postId } });
+    revalidatePath("/forum");
+  } catch (error) {
+    redirectWithError(`/forum/${postId}`, friendlyError(error, "帖子删除失败,请稍后再试"));
+  }
+
+  redirect("/forum");
+}
+
+export async function updateReplyAction(formData: FormData) {
+  const replyId = stringValue(formData, "replyId");
+  const postId = stringValue(formData, "postId");
+  const returnTo = safeReturnTo(formData, postId ? `/forum/${postId}` : "/forum");
+  try {
+    const user = await requireUser();
+    const reply = await prisma.forumReply.findUniqueOrThrow({ where: { id: replyId } });
+
+    if (reply.authorId !== user.id) {
+      throw new Error("无权编辑该回复");
+    }
+
+    const content = stringValue(formData, "content");
+    if (!content) throw new Error("回复内容不能为空");
+
+    await prisma.forumReply.update({
+      where: { id: replyId },
+      data: { content },
+    });
+
+    revalidatePath(`/forum/${postId}`);
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "回复更新失败,请稍后再试"));
+  }
+
+  redirectWithSuccess(returnTo, "回复已更新");
+}
+
+export async function deleteReplyAction(formData: FormData) {
+  const postId = stringValue(formData, "postId");
+  try {
+    const user = await requireUser();
+    const replyId = stringValue(formData, "replyId");
+    const reply = await prisma.forumReply.findUniqueOrThrow({ where: { id: replyId } });
+
+    if (reply.authorId !== user.id && user.role !== "ADMIN") {
+      throw new Error("无权删除该回复");
+    }
+
+    await prisma.forumReply.delete({ where: { id: replyId } });
+    revalidatePath(`/forum/${postId}`);
+  } catch (error) {
+    redirectWithError(`/forum/${postId}`, friendlyError(error, "回复删除失败,请稍后再试"));
+  }
+
+  redirectWithSuccess(`/forum/${postId}`, "回复已删除");
+}

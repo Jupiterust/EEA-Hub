@@ -43,3 +43,14 @@ export const buttonClass =
 
 export const secondaryButtonClass =
   "inline-flex items-center justify-center rounded-md border border-border bg-surface px-4 py-2 text-sm font-semibold text-text-primary transition hover:border-primary hover:bg-elevated focus:outline-none focus:ring-4 focus:ring-primary/20";
+
+export const editButtonClass =
+  "appearance-none box-border h-9 leading-none inline-flex items-center justify-center rounded-md border border-accent/40 bg-accent/15 px-4 text-sm font-semibold text-accent transition hover:bg-accent/25 focus:outline-none focus:ring-4 focus:ring-accent/20";
+
+export const deleteButtonClass =
+  "appearance-none box-border h-9 leading-none inline-flex items-center justify-center rounded-md border border-danger/40 bg-danger/15 px-4 text-sm font-semibold text-danger transition hover:bg-danger/25 focus:outline-none focus:ring-4 focus:ring-danger/20";
+
+export const editLinkClass = "text-xs font-medium text-accent hover:underline";
+
+export const deleteLinkClass =
+  "appearance-none inline text-xs font-medium text-danger hover:underline bg-transparent border-0 p-0 m-0 cursor-pointer";
