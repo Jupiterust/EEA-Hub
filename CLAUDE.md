@@ -7,72 +7,70 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ## Commands
 
 ```bash
-npm run dev              # start dev server
-npm run build            # production build
-npm run lint             # ESLint
+npm run dev           # start dev server on localhost:3000
+npm run build         # production build
+npm run lint          # ESLint
 npm run prisma:generate  # regenerate Prisma client after schema changes
-npm run prisma:migrate   # create and apply a new migration (dev only)
-npm run prisma:seed      # seed admin user and invite code
+npm run prisma:migrate   # run migrations in dev (creates migration files)
+npm run prisma:seed      # seed admin account and invite code
 ```
 
-For production database migrations: `npx prisma migrate deploy`
+There are no automated tests in this project.
 
-There are no automated tests.
+After any `prisma/schema.prisma` change, always run `prisma:generate` before building.
 
 ## Architecture
 
-**Stack:** Next.js 16 App Router · React 19 · TypeScript · Prisma 6 + PostgreSQL · Auth.js v5 (beta) · Supabase Storage · Tailwind CSS v4
+**Stack:** Next.js 16 App Router · TypeScript · Prisma + PostgreSQL · Auth.js v5 (next-auth beta) · Tailwind CSS v4 · Supabase Storage
 
-### Data model
+**Key entry points:**
+- `src/auth.ts` — Auth.js config (JWT strategy, credentials provider). Role/division/team are embedded in the JWT and exposed via `session.user`.
+- `src/lib/prisma.ts` — singleton Prisma client.
+- `src/lib/actions.ts` — all Server Actions (the only mutation layer; no separate API routes for data mutations).
+- `src/lib/authz.ts` — `requireUser()`, `requireLeader()`, `canManageScope()`, `canSeeAssignment()` — call these at the top of every Server Action or page that has access restrictions.
+- `src/lib/storage.ts` — Supabase Storage upload helpers used by actions (`uploadObject` for assignment files, `uploadImageObject` for forum images).
+- `src/lib/labels.ts` — display strings for all enums; also defines `validTeamsByDivision` which drives the division→team constraint in the UI.
 
-Three-tier roles: `MEMBER`, `LEADER`, `ADMIN`. Each user belongs to a `Division` (SOFTWARE, ANALOG, GENERAL) and a `Team` (CONTROL, VISION, FPGA, HARDWARE, GENERAL). The `validTeamsByDivision` map in `src/lib/labels.ts` enforces valid combinations. `GENERAL` division/team acts as a wildcard that is visible to everyone.
+**Route structure** (`src/app/`):
+- `/` root, `/login`, `/register` — public
+- `/dashboard` — personal profile: submissions, authored posts, upcoming deadlines
+- `/docs`, `/docs/[slug]`, `/docs/new` — tech docs (LEADER+ to create)
+- `/forum`, `/forum/[id]`, `/forum/new` — forum with anonymous posting
+- `/assignments`, `/assignments/[id]`, `/assignments/new` — assignments (LEADER+ to create; members submit files)
+- `/departments` — org chart / department listing
+- `/search` — full-site search across docs and forum
+- `/admin` — user approval, role management, invite codes, report queue, audit log (LEADER+ access; some sections ADMIN-only)
+- `/api/auth/[...nextauth]` — Auth.js catch-all
 
-Core Prisma models: `User`, `InviteCode`, `TechDoc`, `DocVersion`, `ForumPost`, `ForumReply`, `Report`, `Assignment`, `Submission`, `AuditLog`.
+**Authorization model:**
+- Three roles: `MEMBER < LEADER < ADMIN`.
+- `canManageScope(user, target)` — a LEADER can only manage content in their own division/team; ADMIN can manage everything. `GENERAL` division/team is visible to all LEADERs.
+- `canSeeAssignment(user, assignment)` — members only see assignments matching their division and team (or GENERAL team).
+- Anonymous posts: `authorId` is always stored. Only ADMIN can trigger `revealAnonymousAuthorAction`, which writes an `AuditLog` entry.
 
-### Auth & authorization
+**Enum constraints:**
+- `Division`: `SOFTWARE | ANALOG | GENERAL`
+- `Team`: `CONTROL | VISION | FPGA | HARDWARE | GENERAL`
+- Valid team per division: SOFTWARE → CONTROL, VISION; ANALOG → FPGA, HARDWARE (see `validTeamsByDivision` in `src/lib/labels.ts`). Members cannot belong to GENERAL division/team.
 
-- `src/auth.ts` — Auth.js v5 config, JWT strategy with Credentials provider. Custom session fields: `id`, `role`, `status`, `division`, `team`.
-- `src/lib/authz.ts` — server-side guards: `requireUser()` / `requireLeader()` redirect on failure; `canManageScope()` checks division/team ownership for LEADER; `canSeeAssignment()` filters assignment visibility.
+**Error/redirect pattern in Server Actions:** use `redirectWithError(path, message)` / `redirectWithSuccess(path, message)` helpers (already defined in `actions.ts`). Pages read `?error=` and `?success=` search params to surface feedback banners via `<FeedbackBanner>`.
 
-### Server actions
+**File uploads:** handled directly in Server Actions via `src/lib/storage.ts` (raw fetch to Supabase Storage REST API — no SDK). Assignment attachments accept zip/pdf/doc/docx up to `MAX_UPLOAD_BYTES` (default 50 MB). Forum images accept jpg/png/webp up to 5 MB, max 9 per post/reply.
 
-All mutations live in `src/lib/actions.ts` (`"use server"`). The pattern is:
-1. Call `requireUser()` / `requireLeader()` at the top.
-2. Parse + validate with Zod.
-3. Write to Prisma, call `revalidatePath()`, then `redirect()`.
-4. Errors are caught and turned into `?error=` redirects via `redirectWithError()`; successes use `redirectWithSuccess()`.
+## Environment variables
 
-`FeedbackBanner` in `src/components/feedback-banner.tsx` reads these query params client-side.
+Copy `.env.example` to `.env`. Required:
 
-### File uploads
+```
+DATABASE_URL           # PostgreSQL connection string
+AUTH_SECRET            # random secret (openssl rand -base64 32)
+AUTH_URL               # http://localhost:3000 in dev
+SUPABASE_URL           # https://xxxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY
+SUPABASE_STORAGE_BUCKET  # e.g. eea-hub
+MAX_UPLOAD_BYTES       # defaults to 52428800 (50 MB)
+SEED_ADMIN_PASSWORD    # used by prisma:seed
+SEED_INVITE_CODE       # used by prisma:seed
+```
 
-`src/lib/storage.ts` uploads directly to Supabase Storage via its REST API (no SDK). Two helpers:
-- `uploadObject` — assignment attachments (zip/pdf/doc/docx, ≤ `MAX_UPLOAD_BYTES`).
-- `uploadImageObject` — forum images (jpg/png/webp, ≤ `MAX_IMAGE_UPLOAD_BYTES`, default 5 MB).
-
-Storage paths follow `<prefix>/<timestamp>-<uuid>-<safeName>` to avoid collisions.
-
-### UI conventions
-
-- `src/components/ui.tsx` exports `cn()` (clsx + tailwind-merge), `Badge`, `Field`, `inputClass`, `buttonClass`, `secondaryButtonClass`.
-- Design tokens are CSS custom properties (e.g. `bg-surface`, `text-text-primary`, `border-border`, `bg-primary`). Use these instead of hardcoded Tailwind colors.
-- `SubmitButton` in `src/components/submit-button.tsx` shows pending state during form submission.
-- `MarkdownView` renders Markdown with `react-markdown` + `remark-gfm`.
-
-### Route map
-
-| Path | Purpose |
-|------|---------|
-| `/` | Landing |
-| `/login` `/register` | Auth |
-| `/dashboard` | Personal profile, submissions, reminders |
-| `/docs` `/docs/[slug]` `/docs/new` | Tech docs (LEADER+ to create) |
-| `/forum` `/forum/[id]` `/forum/new` | Forum (anonymous posting supported) |
-| `/assignments` `/assignments/[id]` `/assignments/new` | Assignments |
-| `/departments` | Department showcase |
-| `/search` | Full-site search |
-| `/admin` | User approval, role change, invite codes, reports, audit log (LEADER+) |
-
-### Anonymity
-
-Forum posts/replies can be anonymous. The DB stores `authorId` but the UI shows "匿名成员". Only ADMINs can trigger de-anonymization, which always writes an `AuditLog` entry (`REVEAL_ANONYMOUS_AUTHOR` action).
+Default seed credentials: username `admin`, password from `SEED_ADMIN_PASSWORD`.
