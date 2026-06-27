@@ -3,6 +3,7 @@ import { Plus, Search } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { DocTree } from "@/components/doc-tree";
+import { HighlightText } from "@/components/highlight-text";
 import { Badge, secondaryButtonClass } from "@/components/ui";
 import { divisionLabels, teamLabels } from "@/lib/labels";
 
@@ -11,11 +12,12 @@ export const dynamic = "force-dynamic";
 export default async function DocsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; division?: string }>;
+  searchParams: Promise<{ q?: string; author?: string; division?: string }>;
 }) {
   const session = await auth();
   const params = await searchParams;
   const q = params.q?.trim();
+  const author = params.author?.trim();
 
   const [docs, allDocs] = await Promise.all([
     prisma.techDoc.findMany({
@@ -27,6 +29,16 @@ export default async function DocsPage({
                 { title: { contains: q, mode: "insensitive" } },
                 { content: { contains: q, mode: "insensitive" } },
               ],
+            }
+          : {}),
+        ...(author
+          ? {
+              author: {
+                OR: [
+                  { realName: { contains: author, mode: "insensitive" } },
+                  { username: { contains: author, mode: "insensitive" } },
+                ],
+              },
             }
           : {}),
         ...(params.division ? { division: params.division as never } : {}),
@@ -57,6 +69,12 @@ export default async function DocsPage({
                   className="w-full rounded-md border border-border py-2 pl-9 pr-3 text-sm outline-none focus:border-primary"
                 />
               </div>
+              <input
+                name="author"
+                defaultValue={author}
+                placeholder="按作者姓名/用户名"
+                className="w-full rounded-md border border-border px-3 py-2 text-sm outline-none focus:border-primary"
+              />
               <select
                 name="division"
                 defaultValue={params.division ?? ""}
@@ -97,7 +115,9 @@ export default async function DocsPage({
                 </Badge>
                 <Badge>{teamLabels[doc.team]}</Badge>
               </div>
-              <h2 className="mt-3 text-xl font-black text-text-primary">{doc.title}</h2>
+              <h2 className="mt-3 text-xl font-black text-text-primary">
+                <HighlightText text={doc.title} query={q} />
+              </h2>
               <p className="mt-1 text-sm text-text-secondary">{doc.path}</p>
               {doc.excerpt ? (
                 <p className="mt-3 line-clamp-2 leading-7 text-text-secondary">{doc.excerpt}</p>
