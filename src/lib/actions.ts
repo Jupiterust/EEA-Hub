@@ -547,7 +547,7 @@ async function uploadForumImages(formData: FormData, prefix: string) {
 
 async function createNotification(data: {
   recipientId: string;
-  type: "REPLY" | "ACCEPT" | "LIKE" | "COMMENT";
+  type: "REPLY" | "ACCEPT" | "LIKE" | "COMMENT" | "DEADLINE";
   message: string;
   linkUrl: string;
   relatedId: string;

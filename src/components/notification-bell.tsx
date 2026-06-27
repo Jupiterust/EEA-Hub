@@ -12,7 +12,7 @@ import {
 
 export type NotificationData = {
   id: string;
-  type: "REPLY" | "ACCEPT" | "LIKE" | "COMMENT";
+  type: "REPLY" | "ACCEPT" | "LIKE" | "COMMENT" | "DEADLINE";
   message: string;
   linkUrl: string;
   isRead: boolean;
@@ -25,6 +25,7 @@ const typeIcon: Record<string, string> = {
   ACCEPT: "✅",
   LIKE: "👍",
   COMMENT: "📝",
+  DEADLINE: "⏰",
 };
 
 const COLLAPSED_COUNT = 5;

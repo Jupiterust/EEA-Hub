@@ -21,6 +21,46 @@ export default async function DashboardPage({
 }) {
   const [user, query] = await Promise.all([requireUser(), searchParams]);
   const now = new Date();
+
+  // Deadline notification check: run before main data fetch so new notifications
+  // appear immediately in this page load
+  if (user.role === "MEMBER") {
+    try {
+      const deadline24h = new Date(now.getTime() + 24 * 60 * 60 * 1000);
+      const dueSoon = await prisma.assignment.findMany({
+        where: {
+          status: "OPEN",
+          division: user.division,
+          OR: [{ team: user.team }, { team: "GENERAL" }],
+          dueAt: { gt: now, lte: deadline24h },
+          submissions: { none: { studentId: user.id } },
+        },
+        select: { id: true, title: true },
+      });
+      for (const assignment of dueSoon) {
+        const exists = await prisma.notification.findFirst({
+          where: { recipientId: user.id, type: "DEADLINE", relatedId: assignment.id },
+          select: { id: true },
+        });
+        if (!exists) {
+          await prisma.notification.create({
+            data: {
+              recipientId: user.id,
+              type: "DEADLINE",
+              message: `作业《${assignment.title}》将在 24 小时内截止，请尽快提交`,
+              linkUrl: `/assignments/${assignment.id}`,
+              relatedId: assignment.id,
+              isRead: false,
+              count: 1,
+            },
+          });
+        }
+      }
+    } catch {
+      // deadline check must never break dashboard loading
+    }
+  }
+
   const soon = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
   const [submissions, posts, anonPosts, anonReplies, docs, todos, adminStats, docComments, dbUser, notificationsRaw] = await Promise.all([
