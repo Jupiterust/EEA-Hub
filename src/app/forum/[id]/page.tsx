@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { CheckCircle, ThumbsUp } from "lucide-react";
+import { Avatar } from "@/components/avatar";
 import { prisma } from "@/lib/prisma";
 import { acceptReplyAction, deletePostAction, deleteReplyAction, replyAction, reportAction, togglePostLikeAction, toggleReplyLikeAction, toggleSolvedAction, unacceptReplyAction, updateReplyAction } from "@/lib/actions";
 import { requireUser } from "@/lib/authz";
@@ -27,12 +28,12 @@ export default async function ForumDetailPage({
   const post = await prisma.forumPost.findUnique({
     where: { id },
     include: {
-      author: { select: { realName: true, username: true } },
+      author: { select: { realName: true, username: true, avatarUrl: true } },
       _count: { select: { postLikes: true } },
       postLikes: { where: { userId: user.id }, select: { userId: true } },
       replies: {
         include: {
-          author: { select: { realName: true, username: true } },
+          author: { select: { realName: true, username: true, avatarUrl: true } },
           _count: { select: { replyLikes: true } },
           replyLikes: { where: { userId: user.id }, select: { userId: true } },
         },
@@ -86,9 +87,15 @@ export default async function ForumDetailPage({
           {post.tags.map((tag) => <Badge key={tag} tone="blue">{tag}</Badge>)}
         </div>
         <h1 className="mt-4 text-3xl font-black text-text-primary">{post.title}</h1>
-        <p className="mt-2 text-sm text-text-secondary">
-          {post.isAnonymous ? "匿名楼主" : post.author.realName} · {post.createdAt.toLocaleString("zh-CN")}
-        </p>
+        <div className="mt-2 flex items-center gap-2 text-sm text-text-secondary">
+          <Avatar
+            url={post.isAnonymous ? null : post.author.avatarUrl}
+            anonymous={post.isAnonymous}
+            size="sm"
+            alt={post.isAnonymous ? "匿名" : post.author.realName}
+          />
+          <span>{post.isAnonymous ? "匿名楼主" : post.author.realName} · {post.createdAt.toLocaleString("zh-CN")}</span>
+        </div>
         <div className="mt-6 rounded-md bg-elevated p-4">
           <MarkdownView content={post.content} />
         </div>
@@ -172,6 +179,12 @@ export default async function ForumDetailPage({
               )}
             >
               <div className="flex flex-wrap items-center gap-2">
+                <Avatar
+                  url={reply.isAnonymous ? null : reply.author.avatarUrl}
+                  anonymous={reply.isAnonymous}
+                  size="xs"
+                  alt={replyAuthorLabel}
+                />
                 <span className="text-sm text-text-secondary">
                   {replyAuthorLabel} · {reply.createdAt.toLocaleString("zh-CN")}
                 </span>

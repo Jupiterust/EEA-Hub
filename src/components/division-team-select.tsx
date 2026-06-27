@@ -27,7 +27,7 @@ export function DivisionTeamSelect({
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">
-      <label className="grid gap-1.5 text-sm font-semibold text-text-primary">
+      <label className="grid gap-1.5 text-base font-semibold text-gold">
         <span>部门</span>
         <select
           name="division"
@@ -40,7 +40,7 @@ export function DivisionTeamSelect({
           <option value="ANALOG">{divisionLabels.ANALOG}</option>
         </select>
       </label>
-      <label className="grid gap-1.5 text-sm font-semibold text-text-primary">
+      <label className="grid gap-1.5 text-base font-semibold text-gold">
         <span>小组</span>
         <select key={division} name="team" defaultValue={selectedTeam} className={inputClass}>
           {teams.map((team) => (

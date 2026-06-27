@@ -1,14 +1,25 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { ThumbsUp } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
-import { deleteDocAction } from "@/lib/actions";
+import {
+  createDocCommentAction,
+  deleteDocAction,
+  deleteDocCommentAction,
+  toggleDocCommentLikeAction,
+  toggleDocLikeAction,
+  updateDocCommentAction,
+} from "@/lib/actions";
+import { requireUser } from "@/lib/authz";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { DocTree } from "@/components/doc-tree";
 import { FeedbackBanner } from "@/components/feedback-banner";
 import { MarkdownView } from "@/components/markdown-view";
+import { SubmitButton } from "@/components/submit-button";
 import { TableOfContents } from "@/components/table-of-contents";
-import { Badge, cn, deleteButtonClass, editButtonClass } from "@/components/ui";
+import { Avatar } from "@/components/avatar";
+import { Badge, cn, deleteButtonClass, deleteLinkClass, editButtonClass, editLinkClass, inputClass, secondaryButtonClass } from "@/components/ui";
 import { divisionLabels, teamLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
@@ -35,12 +46,18 @@ function extractHeadings(markdown: string): Heading[] {
   return headings;
 }
 
+function anonymousLetter(index: number) {
+  const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
+  if (index < letters.length) return letters[index];
+  return `${letters[index % letters.length]}${Math.floor(index / letters.length) + 1}`;
+}
+
 export default async function DocDetailPage({
   params,
   searchParams,
 }: {
   params: Promise<{ slug: string }>;
-  searchParams: Promise<{ error?: string; success?: string }>;
+  searchParams: Promise<{ error?: string; success?: string; editComment?: string }>;
 }) {
   const [{ slug }, query, session] = await Promise.all([
     params,
@@ -48,10 +65,34 @@ export default async function DocDetailPage({
     auth(),
   ]);
 
+  // requireUser for comment actions — but doc is public-readable; fall back gracefully
+  let currentUser: Awaited<ReturnType<typeof requireUser>> | null = null;
+  try {
+    currentUser = await requireUser();
+  } catch {
+    // not logged in — read-only view
+  }
+
   const [doc, allDocs] = await Promise.all([
     prisma.techDoc.findUnique({
       where: { slug },
-      include: { author: { select: { realName: true } } },
+      include: {
+        author: { select: { realName: true, avatarUrl: true } },
+        _count: { select: { docLikes: true } },
+        docLikes: currentUser
+          ? { where: { userId: currentUser.id }, select: { userId: true } }
+          : false,
+        comments: {
+          include: {
+            author: { select: { realName: true, username: true, avatarUrl: true } },
+            _count: { select: { commentLikes: true } },
+            commentLikes: currentUser
+              ? { where: { userId: currentUser.id }, select: { userId: true } }
+              : false,
+          },
+          orderBy: { createdAt: "asc" },
+        },
+      },
     }),
     prisma.techDoc.findMany({
       where: { published: true },
@@ -60,16 +101,28 @@ export default async function DocDetailPage({
     }),
   ]);
 
-  if (!doc) {
-    notFound();
-  }
+  if (!doc) notFound();
 
   const currentUserId = session?.user?.id;
   const currentUserRole = session?.user?.role;
   const isAuthor = !!currentUserId && currentUserId === doc.authorId;
   const canDelete = isAuthor || currentUserRole === "ADMIN";
 
+  const userLikedDoc = Array.isArray(doc.docLikes) && doc.docLikes.length > 0;
+  const docLikeCount = doc._count.docLikes;
+
+  // Build anonymous label map for comments in this doc
+  const anonLabels = new Map<string, string>();
+  let anonIndex = 0;
+  for (const c of doc.comments) {
+    if (!c.isAnonymous) continue;
+    if (!anonLabels.has(c.authorId)) {
+      anonLabels.set(c.authorId, `匿名用户${anonymousLetter(anonIndex++)}`);
+    }
+  }
+
   const headings = extractHeadings(doc.content);
+  const editCommentId = query.editComment;
 
   return (
     <div className="mx-auto max-w-[1500px] px-4 sm:px-6">
@@ -87,32 +140,29 @@ export default async function DocDetailPage({
 
         {/* ── Center: content ────────────────────────────────── */}
         <main className="min-w-0">
-          {/* Mobile back link */}
           <div className="mb-4 md:hidden">
-            <Link href="/docs" className="text-sm font-semibold text-primary">
-              ← 返回文档列表
-            </Link>
+            <Link href="/docs" className="text-sm font-semibold text-primary">← 返回文档列表</Link>
           </div>
 
           <FeedbackBanner error={query.error} success={query.success} />
 
           <div className="rounded-lg border border-border bg-surface p-5 sm:p-8">
-            {/* Metadata bar */}
             <div className="flex flex-wrap items-center gap-2 text-sm text-text-secondary">
               <Badge tone={doc.division === "GENERAL" ? "blue" : "slate"}>
                 {divisionLabels[doc.division]}
               </Badge>
               <Badge>{teamLabels[doc.team]}</Badge>
               {doc.path && <span className="text-xs text-text-secondary/70">{doc.path}</span>}
-              <span className="ml-auto text-xs">
+              <span className="ml-auto inline-flex items-center gap-1.5 text-xs">
+                <Avatar url={doc.author.avatarUrl} size="xs" alt={doc.author.realName} />
                 {doc.author.realName} · 更新于 {doc.updatedAt.toLocaleDateString("zh-CN")}
               </span>
             </div>
 
             <h1 className="mt-4 text-3xl font-black text-text-primary">{doc.title}</h1>
-            {doc.excerpt ? (
+            {doc.excerpt && (
               <p className="mt-2 text-base leading-relaxed text-text-secondary">{doc.excerpt}</p>
-            ) : null}
+            )}
 
             {(isAuthor || canDelete) && (
               <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
@@ -136,7 +186,154 @@ export default async function DocDetailPage({
             <div className="mt-8">
               <MarkdownView content={doc.content} />
             </div>
+
+            {/* ── Like button ── */}
+            <div className="mt-6 flex items-center gap-3 border-t border-border pt-4">
+              {currentUser ? (
+                <form action={toggleDocLikeAction}>
+                  <input type="hidden" name="docId" value={doc.id} />
+                  <input type="hidden" name="slug" value={slug} />
+                  <input type="hidden" name="returnTo" value={`/docs/${slug}`} />
+                  <SubmitButton
+                    variant="secondary"
+                    pendingText="..."
+                    className={cn(
+                      "gap-1.5 px-3 py-1.5 text-xs",
+                      userLikedDoc && "border-success/40 bg-success/10 text-success hover:bg-success/20",
+                    )}
+                  >
+                    <ThumbsUp className="size-3.5" />
+                    {userLikedDoc ? "已点赞" : "点赞"}{docLikeCount > 0 ? ` ${docLikeCount}` : ""}
+                  </SubmitButton>
+                </form>
+              ) : (
+                <span className="inline-flex items-center gap-1.5 text-sm text-text-secondary">
+                  <ThumbsUp className="size-3.5" /> {docLikeCount}
+                </span>
+              )}
+            </div>
           </div>
+
+          {/* ── Comments ── */}
+          <section className="mt-6">
+            <h2 className="mb-4 text-xl font-black text-text-primary">
+              评论 {doc.comments.length > 0 && <span className="text-base font-normal text-text-secondary">（{doc.comments.length}）</span>}
+            </h2>
+
+            <div className="grid gap-3">
+              {doc.comments.map((comment) => {
+                const authorLabel = comment.isAnonymous
+                  ? (anonLabels.get(comment.authorId) ?? "匿名用户")
+                  : comment.author.realName;
+                const isCommentAuthor = currentUserId === comment.authorId;
+                const canDeleteComment = isCommentAuthor || currentUserRole === "ADMIN";
+                const isEditing = editCommentId === comment.id && isCommentAuthor;
+                const userLikedComment = Array.isArray(comment.commentLikes) && comment.commentLikes.length > 0;
+                const commentLikeCount = comment._count.commentLikes;
+
+                return (
+                  <div key={comment.id} className="rounded-lg border border-border bg-surface p-4">
+                    <div className="flex items-center gap-2 text-sm text-text-secondary">
+                      <Avatar
+                        url={comment.isAnonymous ? null : comment.author.avatarUrl}
+                        anonymous={comment.isAnonymous}
+                        size="xs"
+                        alt={authorLabel}
+                      />
+                      <span>{authorLabel} · {comment.createdAt.toLocaleString("zh-CN")}</span>
+                    </div>
+
+                    {isEditing ? (
+                      <form action={updateDocCommentAction} className="mt-3 grid gap-3">
+                        <input type="hidden" name="commentId" value={comment.id} />
+                        <input type="hidden" name="slug" value={slug} />
+                        <input type="hidden" name="returnTo" value={`/docs/${slug}`} />
+                        <textarea
+                          name="content"
+                          defaultValue={comment.content}
+                          className={`${inputClass} font-mono`}
+                          rows={4}
+                          required
+                        />
+                        <div className="flex gap-2">
+                          <SubmitButton pendingText="保存中..." className="text-xs px-3 py-1.5">保存</SubmitButton>
+                          <Link href={`/docs/${slug}`} className={`${secondaryButtonClass} text-xs px-3 py-1.5`}>取消</Link>
+                        </div>
+                      </form>
+                    ) : (
+                      <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-text-primary">{comment.content}</p>
+                    )}
+
+                    <div className="mt-3 flex flex-wrap items-center gap-2">
+                      {isCommentAuthor && !isEditing && (
+                        <Link href={`/docs/${slug}?editComment=${comment.id}`} className={editLinkClass}>编辑</Link>
+                      )}
+                      {canDeleteComment && (
+                        <ConfirmDelete
+                          action={deleteDocCommentAction}
+                          fields={{ commentId: comment.id, slug }}
+                          message="确定要删除这条评论吗？"
+                          buttonLabel="删除"
+                          buttonClassName={deleteLinkClass}
+                        />
+                      )}
+                      {currentUser && (
+                        <form action={toggleDocCommentLikeAction} className="ml-auto">
+                          <input type="hidden" name="commentId" value={comment.id} />
+                          <input type="hidden" name="slug" value={slug} />
+                          <input type="hidden" name="returnTo" value={`/docs/${slug}`} />
+                          <SubmitButton
+                            variant="secondary"
+                            pendingText="..."
+                            className={cn(
+                              "gap-1 px-2 py-1 text-xs",
+                              userLikedComment && "border-success/40 bg-success/10 text-success hover:bg-success/20",
+                            )}
+                          >
+                            <ThumbsUp className="size-3" />
+                            {commentLikeCount > 0 ? commentLikeCount : ""}
+                          </SubmitButton>
+                        </form>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* New comment form */}
+            {currentUser ? (
+              <div className="mt-4 rounded-lg border border-border bg-surface p-5">
+                <h3 className="text-base font-bold text-text-primary">发表评论</h3>
+                <form action={createDocCommentAction} className="mt-3 grid gap-3">
+                  <input type="hidden" name="docId" value={doc.id} />
+                  <input type="hidden" name="slug" value={slug} />
+                  <input type="hidden" name="returnTo" value={`/docs/${slug}`} />
+                  <textarea
+                    name="content"
+                    placeholder="写下你的评论…"
+                    className={`${inputClass} font-mono`}
+                    rows={4}
+                    required
+                  />
+                  <div className="flex items-center justify-between gap-4">
+                    <label className="flex items-center gap-2 text-sm font-semibold text-text-primary">
+                      <input name="isAnonymous" type="checkbox" className="size-4" />
+                      匿名评论
+                    </label>
+                    <SubmitButton pendingText="发表中...">发表评论</SubmitButton>
+                  </div>
+                </form>
+                <p className="mt-2 text-xs text-text-secondary">
+                  当前身份：{currentUser.name}。匿名评论前端不会展示真实身份。
+                </p>
+              </div>
+            ) : (
+              <p className="mt-4 text-sm text-text-secondary">
+                <Link href="/login" className="text-primary hover:underline">登录</Link> 后可发表评论。
+              </p>
+            )}
+          </section>
         </main>
 
         {/* ── Right: TOC ─────────────────────────────────────── */}

@@ -67,6 +67,7 @@ model User {
   division       Division
   team           Team
   bannedReason   String?
+  avatarUrl      String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   approvedAt     DateTime?
@@ -86,6 +87,9 @@ model User {
   auditLogs      AuditLog[]
   postLikes      PostLike[]
   replyLikes     ReplyLike[]
+  docLikes       DocLike[]
+  docComments    DocComment[]
+  docCommentLikes DocCommentLike[]
 }
 
 model InviteCode {
@@ -118,6 +122,8 @@ model TechDoc {
   authorId    String
   author      User       @relation(fields: [authorId], references: [id])
   versions    DocVersion[]
+  docLikes    DocLike[]
+  comments    DocComment[]
 
   @@index([division, team])
   @@index([title])
@@ -254,4 +260,39 @@ model ReplyLike {
   createdAt DateTime   @default(now())
 
   @@id([userId, replyId])
+}
+
+model DocLike {
+  userId    String
+  docId     String
+  user      User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  doc       TechDoc @relation(fields: [docId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+
+  @@id([userId, docId])
+}
+
+model DocComment {
+  id          String   @id @default(cuid())
+  content     String
+  isAnonymous Boolean  @default(false)
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+  docId       String
+  doc         TechDoc  @relation(fields: [docId], references: [id], onDelete: Cascade)
+  authorId    String
+  author      User     @relation(fields: [authorId], references: [id])
+  commentLikes DocCommentLike[]
+
+  @@index([docId])
+}
+
+model DocCommentLike {
+  userId    String
+  commentId String
+  user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  comment   DocComment @relation(fields: [commentId], references: [id], onDelete: Cascade)
+  createdAt DateTime   @default(now())
+
+  @@id([userId, commentId])
 }

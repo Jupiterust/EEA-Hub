@@ -774,3 +774,115 @@ export async function toggleReplyLikeAction(formData: FormData) {
   }
   redirect(returnTo);
 }
+
+export async function toggleDocLikeAction(formData: FormData) {
+  const docId = stringValue(formData, "docId");
+  const slug = stringValue(formData, "slug");
+  const returnTo = safeReturnTo(formData, `/docs/${slug}`);
+  try {
+    const user = await requireUser();
+    const existing = await prisma.docLike.findUnique({
+      where: { userId_docId: { userId: user.id, docId } },
+    });
+    if (existing) {
+      await prisma.docLike.delete({ where: { userId_docId: { userId: user.id, docId } } });
+    } else {
+      await prisma.docLike.create({ data: { userId: user.id, docId } });
+    }
+    revalidatePath(`/docs/${slug}`);
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "点赞操作失败，请稍后重试"));
+  }
+  redirect(returnTo);
+}
+
+export async function createDocCommentAction(formData: FormData) {
+  const docId = stringValue(formData, "docId");
+  const slug = stringValue(formData, "slug");
+  const returnTo = safeReturnTo(formData, `/docs/${slug}`);
+  try {
+    const user = await requireUser();
+    const content = stringValue(formData, "content");
+    if (!content) throw new Error("评论内容不能为空");
+    const isAnonymous = boolValue(formData, "isAnonymous");
+    await prisma.docComment.create({
+      data: { docId, authorId: user.id, content, isAnonymous },
+    });
+    revalidatePath(`/docs/${slug}`);
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "评论发表失败，请稍后重试"));
+  }
+  redirect(returnTo);
+}
+
+export async function updateDocCommentAction(formData: FormData) {
+  const commentId = stringValue(formData, "commentId");
+  const slug = stringValue(formData, "slug");
+  const returnTo = safeReturnTo(formData, `/docs/${slug}`);
+  try {
+    const user = await requireUser();
+    const comment = await prisma.docComment.findUniqueOrThrow({ where: { id: commentId } });
+    if (comment.authorId !== user.id) throw new Error("无权编辑该评论");
+    const content = stringValue(formData, "content");
+    if (!content) throw new Error("评论内容不能为空");
+    await prisma.docComment.update({ where: { id: commentId }, data: { content } });
+    revalidatePath(`/docs/${slug}`);
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "评论更新失败，请稍后重试"));
+  }
+  redirectWithSuccess(returnTo, "评论已更新");
+}
+
+export async function deleteDocCommentAction(formData: FormData) {
+  const commentId = stringValue(formData, "commentId");
+  const slug = stringValue(formData, "slug");
+  const returnTo = safeReturnTo(formData, `/docs/${slug}`);
+  try {
+    const user = await requireUser();
+    const comment = await prisma.docComment.findUniqueOrThrow({ where: { id: commentId } });
+    if (comment.authorId !== user.id && user.role !== "ADMIN") throw new Error("无权删除该评论");
+    await prisma.docComment.delete({ where: { id: commentId } });
+    revalidatePath(`/docs/${slug}`);
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "评论删除失败，请稍后重试"));
+  }
+  redirectWithSuccess(returnTo, "评论已删除");
+}
+
+export async function toggleDocCommentLikeAction(formData: FormData) {
+  const commentId = stringValue(formData, "commentId");
+  const slug = stringValue(formData, "slug");
+  const returnTo = safeReturnTo(formData, `/docs/${slug}`);
+  try {
+    const user = await requireUser();
+    const existing = await prisma.docCommentLike.findUnique({
+      where: { userId_commentId: { userId: user.id, commentId } },
+    });
+    if (existing) {
+      await prisma.docCommentLike.delete({ where: { userId_commentId: { userId: user.id, commentId } } });
+    } else {
+      await prisma.docCommentLike.create({ data: { userId: user.id, commentId } });
+    }
+    revalidatePath(`/docs/${slug}`);
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "点赞操作失败，请稍后重试"));
+  }
+  redirect(returnTo);
+}
+
+export async function uploadAvatarAction(formData: FormData) {
+  try {
+    const user = await requireUser();
+    const file = formData.get("avatar");
+    if (!(file instanceof File) || file.size === 0) throw new Error("请选择一张图片");
+    if (file.size > 2 * 1024 * 1024) throw new Error("头像图片不能超过 2MB");
+    const allowed = new Set(["image/jpeg", "image/png", "image/webp"]);
+    if (!allowed.has(file.type)) throw new Error("头像仅支持 jpg、png、webp 格式");
+    const { url } = await uploadImageObject(file, `avatars/${user.id}`);
+    await prisma.user.update({ where: { id: user.id }, data: { avatarUrl: url } });
+    revalidatePath("/dashboard");
+  } catch (error) {
+    redirectWithError("/dashboard", friendlyError(error, "头像上传失败，请稍后重试"));
+  }
+  redirectWithSuccess("/dashboard", "头像已更新");
+}

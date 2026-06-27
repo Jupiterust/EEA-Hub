@@ -1,22 +1,29 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
-import { deleteDocAction, deletePostAction, deleteReplyAction } from "@/lib/actions";
+import { deleteDocAction, deleteDocCommentAction, deletePostAction, deleteReplyAction, uploadAvatarAction } from "@/lib/actions";
+import { Avatar } from "@/components/avatar";
 import { ConfirmDelete } from "@/components/confirm-delete";
-import { Badge, editLinkClass, deleteLinkClass } from "@/components/ui";
+import { SubmitButton } from "@/components/submit-button";
+import { Badge, editLinkClass, deleteLinkClass, inputClass } from "@/components/ui";
 import { divisionLabels, roleLabels, statusLabels, teamLabels } from "@/lib/labels";
+import { FeedbackBanner } from "@/components/feedback-banner";
 
 export const dynamic = "force-dynamic";
 
 const itemActionClass = editLinkClass;
 const itemDangerClass = deleteLinkClass;
 
-export default async function DashboardPage() {
-  const user = await requireUser();
+export default async function DashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ error?: string; success?: string }>;
+}) {
+  const [user, query] = await Promise.all([requireUser(), searchParams]);
   const now = new Date();
   const soon = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-  const [submissions, posts, anonPosts, anonReplies, docs, todos, adminStats] = await Promise.all([
+  const [submissions, posts, anonPosts, anonReplies, docs, todos, adminStats, docComments, dbUser] = await Promise.all([
     prisma.submission.findMany({
       where: { studentId: user.id },
       include: { assignment: { select: { id: true, title: true, dueAt: true } } },
@@ -68,18 +75,44 @@ export default async function DashboardPage() {
           prisma.report.count({ where: { status: "OPEN" } }),
           prisma.assignment.count(),
         ]),
+    prisma.docComment.findMany({
+      where: { authorId: user.id },
+      include: { doc: { select: { slug: true, title: true } } },
+      orderBy: { createdAt: "desc" },
+      take: 8,
+    }),
+    prisma.user.findUnique({
+      where: { id: user.id },
+      select: { avatarUrl: true },
+    }),
   ]);
+
+  const avatarUrl: string | null = dbUser?.avatarUrl ?? null;
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+      <FeedbackBanner error={query.error} success={query.success} />
+
       <section className="rounded-lg border border-border bg-surface p-6">
-        <h1 className="text-3xl font-black text-text-primary">个人主页</h1>
-        <div className="mt-4 flex flex-wrap gap-2">
-          <Badge tone="blue">{user.name}</Badge>
-          <Badge>{divisionLabels[user.division]}</Badge>
-          <Badge>{teamLabels[user.team]}</Badge>
-          <Badge tone={user.role === "ADMIN" ? "red" : user.role === "LEADER" ? "amber" : "slate"}>{roleLabels[user.role]}</Badge>
-          <Badge tone="green">{statusLabels[user.status]}</Badge>
+        <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
+          <div className="flex flex-col items-center gap-3">
+            <Avatar url={avatarUrl} size="lg" alt={user.name ?? ""} />
+            <form action={uploadAvatarAction} className="flex flex-col items-center gap-2">
+              <input name="avatar" type="file" accept="image/jpeg,image/png,image/webp" className={`${inputClass} text-xs`} />
+              <SubmitButton pendingText="上传中..." className="w-full text-xs px-3 py-1.5">更换头像</SubmitButton>
+              <p className="text-[11px] text-text-secondary">jpg/png/webp · 最大 2MB</p>
+            </form>
+          </div>
+          <div className="flex-1">
+            <h1 className="text-3xl font-black text-text-primary">个人主页</h1>
+            <div className="mt-4 flex flex-wrap gap-2">
+              <Badge tone="blue">{user.name}</Badge>
+              <Badge>{divisionLabels[user.division]}</Badge>
+              <Badge>{teamLabels[user.team]}</Badge>
+              <Badge tone={user.role === "ADMIN" ? "red" : user.role === "LEADER" ? "amber" : "slate"}>{roleLabels[user.role]}</Badge>
+              <Badge tone="green">{statusLabels[user.status]}</Badge>
+            </div>
+          </div>
         </div>
       </section>
 
@@ -182,6 +215,35 @@ export default async function DashboardPage() {
           ) : null}
         </div>
       </section>
+
+      {docComments.length > 0 && (
+        <section className="mt-6 rounded-lg border border-border bg-surface p-5">
+          <h2 className="text-xl font-black text-text-primary">我发布的文档评论</h2>
+          <p className="mt-1 text-xs text-text-secondary">包含匿名评论，仅自己可见真实关联。公开页匿名评论仍以匿名方式显示。</p>
+          <div className="mt-4 grid gap-3 sm:grid-cols-2">
+            {docComments.map((comment) => (
+              <div key={comment.id} className="rounded-md border border-border p-3 text-sm">
+                <Link href={`/docs/${comment.doc.slug}`} className="block font-semibold text-text-primary hover:text-primary truncate">
+                  {comment.isAnonymous && <span className="mr-1 text-xs text-text-secondary">[匿名]</span>}
+                  {comment.doc.title}
+                </Link>
+                <p className="mt-1 text-text-secondary line-clamp-2">{comment.content}</p>
+                <p className="mt-1 text-xs text-text-secondary">{comment.createdAt.toLocaleString("zh-CN")}</p>
+                <div className="mt-2 flex gap-3">
+                  <Link href={`/docs/${comment.doc.slug}?editComment=${comment.id}`} className={itemActionClass}>编辑</Link>
+                  <ConfirmDelete
+                    action={deleteDocCommentAction}
+                    fields={{ commentId: comment.id, slug: comment.doc.slug }}
+                    message="确定要删除这条评论吗？"
+                    buttonLabel="删除"
+                    buttonClassName={itemDangerClass}
+                  />
+                </div>
+              </div>
+            ))}
+          </div>
+        </section>
+      )}
 
       {(anonPosts.length > 0 || anonReplies.length > 0) && (
         <section className="mt-6 rounded-lg border border-border bg-surface p-5">

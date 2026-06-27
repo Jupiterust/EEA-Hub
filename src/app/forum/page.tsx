@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MessageSquare, Plus, Search, ThumbsUp } from "lucide-react";
 import { prisma } from "@/lib/prisma";
+import { Avatar } from "@/components/avatar";
 import { Badge, cn, secondaryButtonClass } from "@/components/ui";
 import { divisionLabels, teamLabels } from "@/lib/labels";
 
@@ -41,7 +42,7 @@ export default async function ForumPage({
         }
       : undefined,
     include: {
-      author: { select: { realName: true, username: true } },
+      author: { select: { realName: true, username: true, avatarUrl: true } },
       _count: { select: { replies: true, postLikes: true } },
     },
     orderBy,
@@ -97,7 +98,13 @@ export default async function ForumPage({
             </div>
             <h2 className="mt-3 text-xl font-black text-text-primary">{post.title}</h2>
             <p className="mt-2 line-clamp-2 text-sm leading-6 text-text-secondary">{post.content}</p>
-            <div className="mt-4 flex items-center gap-4 text-sm text-text-secondary">
+            <div className="mt-4 flex items-center gap-3 text-sm text-text-secondary">
+              <Avatar
+                url={post.isAnonymous ? null : post.author.avatarUrl}
+                anonymous={post.isAnonymous}
+                size="xs"
+                alt={post.isAnonymous ? "匿名" : post.author.realName}
+              />
               <span>{post.isAnonymous ? "匿名楼主" : post.author.realName}</span>
               <span className="inline-flex items-center gap-1"><MessageSquare className="size-4" /> {post._count.replies}</span>
               <span className="inline-flex items-center gap-1"><ThumbsUp className="size-4" /> {post._count.postLikes}</span>
