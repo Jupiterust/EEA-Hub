@@ -12,8 +12,10 @@ interface Props {
   name: string;
   label?: string;
   defaultValue?: string;
+  /** Controlled mode: pass value + onChange together */
+  value?: string;
+  onChange?: (value: string) => void;
   rows?: number;
-  required?: boolean;
   placeholder?: string;
 }
 
@@ -21,11 +23,20 @@ export function MarkdownEditor({
   name,
   label = "正文",
   defaultValue = "",
+  value: controlledValue,
+  onChange,
   rows = 12,
   placeholder,
 }: Props) {
+  const isControlled = controlledValue !== undefined;
   const [tab, setTab] = useState<"write" | "preview">("write");
-  const [value, setValue] = useState(defaultValue);
+  const [internalValue, setInternalValue] = useState(defaultValue);
+  const value = isControlled ? controlledValue : internalValue;
+
+  function handleChange(next: string) {
+    if (!isControlled) setInternalValue(next);
+    onChange?.(next);
+  }
 
   return (
     <div className="grid gap-1.5">
@@ -66,7 +77,7 @@ export function MarkdownEditor({
       <textarea
         aria-label={label}
         value={value}
-        onChange={(e) => setValue(e.target.value)}
+        onChange={(e) => handleChange(e.target.value)}
         rows={rows}
         placeholder={placeholder}
         className={cn(inputClass, "font-mono", tab === "preview" && "hidden")}
