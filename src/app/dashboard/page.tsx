@@ -1,11 +1,10 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
-import { deleteDocAction, deleteDocCommentAction, deletePostAction, deleteReplyAction, uploadAvatarAction } from "@/lib/actions";
-import { Avatar } from "@/components/avatar";
+import { deleteDocAction, deleteDocCommentAction, deletePostAction, deleteReplyAction } from "@/lib/actions";
+import { AvatarUpload } from "@/components/avatar-upload";
 import { ConfirmDelete } from "@/components/confirm-delete";
-import { SubmitButton } from "@/components/submit-button";
-import { Badge, editLinkClass, deleteLinkClass, inputClass } from "@/components/ui";
+import { Badge, editLinkClass, deleteLinkClass } from "@/components/ui";
 import { divisionLabels, roleLabels, statusLabels, teamLabels } from "@/lib/labels";
 import { FeedbackBanner } from "@/components/feedback-banner";
 
@@ -95,14 +94,7 @@ export default async function DashboardPage({
 
       <section className="rounded-lg border border-border bg-surface p-6">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
-          <div className="flex flex-col items-center gap-3">
-            <Avatar url={avatarUrl} size="lg" alt={user.name ?? ""} />
-            <form action={uploadAvatarAction} className="flex flex-col items-center gap-2">
-              <input name="avatar" type="file" accept="image/jpeg,image/png,image/webp" className={`${inputClass} text-xs`} />
-              <SubmitButton pendingText="上传中..." className="w-full text-xs px-3 py-1.5">更换头像</SubmitButton>
-              <p className="text-[11px] text-text-secondary">jpg/png/webp · 最大 2MB</p>
-            </form>
-          </div>
+          <AvatarUpload currentUrl={avatarUrl} />
           <div className="flex-1">
             <h1 className="text-3xl font-black text-text-primary">个人主页</h1>
             <div className="mt-4 flex flex-wrap gap-2">

@@ -8,6 +8,8 @@ const sizes = {
   sm: 32,
   md: 40,
   lg: 80,
+  xl: 96,
+  "2xl": 112,
 };
 
 export function Avatar({
