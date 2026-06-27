@@ -185,6 +185,14 @@ model ForumReply {
   author       User      @relation(fields: [authorId], references: [id])
   reports      Report[]
   replyLikes   ReplyLike[]
+  parentId     String?
+  parent       ForumReply?  @relation("SubReplies", fields: [parentId], references: [id], onDelete: Cascade)
+  children     ForumReply[] @relation("SubReplies")
+  replyToId    String?
+  replyTo      ForumReply?  @relation("ReplyMentions", fields: [replyToId], references: [id], onDelete: SetNull)
+  replyMentions ForumReply[] @relation("ReplyMentions")
+
+  @@index([postId, parentId])
 }
 
 model Assignment {

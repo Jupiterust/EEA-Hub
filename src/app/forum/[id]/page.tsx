@@ -8,6 +8,7 @@ import { requireUser } from "@/lib/authz";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { FeedbackBanner } from "@/components/feedback-banner";
 import { ImageLightbox } from "@/components/image-lightbox";
+import { InlineReplyForm } from "@/components/inline-reply-form";
 import { MarkdownView } from "@/components/markdown-view";
 import { SubmitButton } from "@/components/submit-button";
 import { Badge, cn, deleteButtonClass, deleteLinkClass, editButtonClass, editLinkClass, inputClass, secondaryButtonClass } from "@/components/ui";
@@ -36,6 +37,14 @@ export default async function ForumDetailPage({
           author: { select: { realName: true, username: true, avatarUrl: true } },
           _count: { select: { replyLikes: true } },
           replyLikes: { where: { userId: user.id }, select: { userId: true } },
+          replyTo: {
+            select: {
+              id: true,
+              authorId: true,
+              isAnonymous: true,
+              author: { select: { realName: true } },
+            },
+          },
         },
         orderBy: { createdAt: "asc" },
       },
@@ -50,12 +59,11 @@ export default async function ForumDetailPage({
   const userLikedPost = post.postLikes.length > 0;
   const postLikeCount = post._count.postLikes;
 
+  // Build anonymous label map from ALL replies in creation order
   const anonymousLabels = new Map<string, string>();
   let anonymousIndex = 0;
   for (const reply of post.replies) {
-    if (!reply.isAnonymous) {
-      continue;
-    }
+    if (!reply.isAnonymous) continue;
     if (post.isAnonymous && reply.authorId === post.authorId) {
       anonymousLabels.set(reply.authorId, "匿名楼主");
       continue;
@@ -66,13 +74,37 @@ export default async function ForumDetailPage({
     }
   }
 
-  // Accepted reply first, then by createdAt asc
-  const sortedReplies = [...post.replies].sort((a, b) => {
+  // Separate main replies (parentId = null) from sub-replies
+  const mainReplies = post.replies.filter((r) => r.parentId === null);
+  const subRepliesMap = new Map<string, typeof post.replies>();
+  for (const reply of post.replies) {
+    if (reply.parentId !== null) {
+      const bucket = subRepliesMap.get(reply.parentId) ?? [];
+      bucket.push(reply);
+      subRepliesMap.set(reply.parentId, bucket);
+    }
+  }
+
+  // Sort main replies: accepted first, then by createdAt asc
+  const sortedMainReplies = [...mainReplies].sort((a, b) => {
     if (a.isAccepted !== b.isAccepted) return a.isAccepted ? -1 : 1;
     return a.createdAt.getTime() - b.createdAt.getTime();
   });
 
   const editReplyId = query.editReply;
+
+  function getDisplayName(reply: { isAnonymous: boolean; authorId: string; author: { realName: string } }) {
+    return reply.isAnonymous
+      ? (anonymousLabels.get(reply.authorId) ?? "匿名用户")
+      : reply.author.realName;
+  }
+
+  function getAtLabel(replyTo: { authorId: string; isAnonymous: boolean; author: { realName: string } } | null) {
+    if (!replyTo) return null;
+    return replyTo.isAnonymous
+      ? (anonymousLabels.get(replyTo.authorId) ?? "匿名用户")
+      : replyTo.author.realName;
+  }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
@@ -103,10 +135,7 @@ export default async function ForumDetailPage({
 
         <div className="mt-4 flex flex-wrap items-center gap-2">
           {isPostAuthor && (
-            <Link
-              href={`/forum/${post.id}/edit`}
-              className={cn(editButtonClass, "px-3 py-1.5 text-xs")}
-            >
+            <Link href={`/forum/${post.id}/edit`} className={cn(editButtonClass, "px-3 py-1.5 text-xs")}>
               编辑帖子
             </Link>
           )}
@@ -123,11 +152,7 @@ export default async function ForumDetailPage({
             <form action={toggleSolvedAction}>
               <input type="hidden" name="postId" value={post.id} />
               <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
-              <SubmitButton
-                variant="secondary"
-                pendingText="..."
-                className="px-3 py-1.5 text-xs"
-              >
+              <SubmitButton variant="secondary" pendingText="..." className="px-3 py-1.5 text-xs">
                 {post.isSolved ? "取消已解决" : "标记已解决"}
               </SubmitButton>
             </form>
@@ -150,153 +175,257 @@ export default async function ForumDetailPage({
           <form action={reportAction} className="flex gap-2">
             <input type="hidden" name="postId" value={post.id} />
             <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
-            <input name="reason" placeholder="举报原因" className={`${inputClass} text-xs py-1.5`} />
-            <SubmitButton variant="secondary" pendingText="提交中..." className="text-xs px-3 py-1.5">举报</SubmitButton>
+            <input name="reason" placeholder="举报原因" className={`${inputClass} py-1.5 text-xs`} />
+            <SubmitButton variant="secondary" pendingText="提交中..." className="px-3 py-1.5 text-xs">举报</SubmitButton>
           </form>
         </div>
       </article>
 
+      {/* Reply list */}
       <section className="mt-6 grid gap-3">
-        <h2 className="text-xl font-black text-text-primary">回复</h2>
-        {sortedReplies.map((reply) => {
-          const replyAuthorLabel = reply.isAnonymous
-            ? (anonymousLabels.get(reply.authorId) ?? "匿名用户")
-            : reply.author.realName;
+        <h2 className="text-xl font-black text-text-primary">
+          回复 {post.replies.length > 0 && <span className="text-base font-normal text-text-secondary">({post.replies.length})</span>}
+        </h2>
+
+        {sortedMainReplies.map((reply) => {
+          const authorLabel = getDisplayName(reply);
           const isReplyAuthor = user.id === reply.authorId;
-          const canDeleteReply = isReplyAuthor || user.role === "ADMIN";
+          const canDelete = isReplyAuthor || user.role === "ADMIN";
           const isEditing = editReplyId === reply.id && isReplyAuthor;
           const userLikedReply = reply.replyLikes.length > 0;
-          const replyLikeCount = reply._count.replyLikes;
+          const subReplies = subRepliesMap.get(reply.id) ?? [];
 
           return (
             <div
               key={reply.id}
               className={cn(
-                "rounded-lg border bg-surface p-5",
-                reply.isAccepted
-                  ? "border-success/40 ring-1 ring-success/20"
-                  : "border-border",
+                "rounded-lg border bg-surface",
+                reply.isAccepted ? "border-success/40 ring-1 ring-success/20" : "border-border",
               )}
             >
-              <div className="flex flex-wrap items-center gap-2">
-                <Avatar
-                  url={reply.isAnonymous ? null : reply.author.avatarUrl}
-                  anonymous={reply.isAnonymous}
-                  size="xs"
-                  alt={replyAuthorLabel}
-                />
-                <span className="text-sm text-text-secondary">
-                  {replyAuthorLabel} · {reply.createdAt.toLocaleString("zh-CN")}
-                </span>
-                {reply.isAccepted && (
-                  <span className="inline-flex items-center gap-1 rounded-md bg-success/15 px-2 py-0.5 text-xs font-semibold text-success ring-1 ring-success/35">
-                    <CheckCircle className="size-3.5" /> 最佳答案
+              {/* Main reply */}
+              <div className="p-5">
+                <div className="flex flex-wrap items-center gap-2">
+                  <Avatar
+                    url={reply.isAnonymous ? null : reply.author.avatarUrl}
+                    anonymous={reply.isAnonymous}
+                    size="xs"
+                    alt={authorLabel}
+                  />
+                  <span className="text-sm text-text-secondary">
+                    {authorLabel} · {reply.createdAt.toLocaleString("zh-CN")}
                   </span>
-                )}
-              </div>
+                  {reply.isAccepted && (
+                    <span className="inline-flex items-center gap-1 rounded-md bg-success/15 px-2 py-0.5 text-xs font-semibold text-success ring-1 ring-success/35">
+                      <CheckCircle className="size-3.5" /> 最佳答案
+                    </span>
+                  )}
+                </div>
 
-              {isEditing ? (
-                <form action={updateReplyAction} className="mt-3 grid gap-3">
-                  <input type="hidden" name="replyId" value={reply.id} />
-                  <input type="hidden" name="postId" value={post.id} />
-                  <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
-                  <textarea
-                    name="content"
-                    defaultValue={reply.content}
-                    className={`${inputClass} font-mono`}
-                    rows={6}
-                    required
-                  />
-                  <div className="flex gap-2">
-                    <SubmitButton pendingText="保存中..." className="text-xs px-3 py-1.5">
-                      保存
-                    </SubmitButton>
-                    <Link
-                      href={`/forum/${post.id}`}
-                      className={`${secondaryButtonClass} text-xs px-3 py-1.5`}
-                    >
-                      取消
-                    </Link>
-                  </div>
-                </form>
-              ) : (
-                <>
-                  <div className="mt-3">
-                    <MarkdownView content={reply.content} />
-                  </div>
-                  <ImageLightbox images={reply.imageUrls.map((url, index) => ({ url, alt: `回复配图 ${index + 1}` }))} />
-                </>
-              )}
-
-              <div className="mt-3 flex flex-wrap items-center gap-2">
-                {isReplyAuthor && !isEditing && (
-                  <Link
-                    href={`/forum/${post.id}?editReply=${reply.id}`}
-                    className={editLinkClass}
-                  >
-                    编辑
-                  </Link>
-                )}
-                {canDeleteReply && (
-                  <ConfirmDelete
-                    action={deleteReplyAction}
-                    fields={{ replyId: reply.id, postId: post.id }}
-                    message="确定要删除这条回复吗？"
-                    buttonLabel="删除"
-                    buttonClassName={deleteLinkClass}
-                  />
-                )}
-                {isPostAuthor && !isEditing && (
-                  reply.isAccepted ? (
-                    <form action={unacceptReplyAction}>
-                      <input type="hidden" name="replyId" value={reply.id} />
-                      <input type="hidden" name="postId" value={post.id} />
-                      <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
-                      <SubmitButton variant="secondary" pendingText="..." className="text-xs px-2 py-1 border-success/40 text-success bg-success/10 hover:bg-success/20">
-                        取消采纳
-                      </SubmitButton>
-                    </form>
-                  ) : (
-                    <form action={acceptReplyAction}>
-                      <input type="hidden" name="replyId" value={reply.id} />
-                      <input type="hidden" name="postId" value={post.id} />
-                      <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
-                      <SubmitButton variant="secondary" pendingText="..." className="text-xs px-2 py-1">
-                        采纳为最佳答案
-                      </SubmitButton>
-                    </form>
-                  )
-                )}
-                <form action={toggleReplyLikeAction} className="ml-auto">
-                  <input type="hidden" name="replyId" value={reply.id} />
-                  <input type="hidden" name="postId" value={post.id} />
-                  <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
-                  <SubmitButton
-                    variant="secondary"
-                    pendingText="..."
-                    className={cn(
-                      "gap-1 px-2 py-1 text-xs",
-                      userLikedReply && "border-success/40 bg-success/10 text-success hover:bg-success/20",
-                    )}
-                  >
-                    <ThumbsUp className="size-3" />
-                    {replyLikeCount > 0 ? replyLikeCount : ""}
-                  </SubmitButton>
-                </form>
-                {!isEditing && (
-                  <form action={reportAction} className="flex gap-2">
+                {isEditing ? (
+                  <form action={updateReplyAction} className="mt-3 grid gap-3">
                     <input type="hidden" name="replyId" value={reply.id} />
+                    <input type="hidden" name="postId" value={post.id} />
                     <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
-                    <input name="reason" placeholder="举报原因" className={`${inputClass} text-xs py-1`} />
-                    <SubmitButton variant="secondary" pendingText="提交中..." className="text-xs px-2 py-1">举报</SubmitButton>
+                    <textarea name="content" defaultValue={reply.content} className={`${inputClass} font-mono`} rows={6} required />
+                    <div className="flex gap-2">
+                      <SubmitButton pendingText="保存中..." className="px-3 py-1.5 text-xs">保存</SubmitButton>
+                      <Link href={`/forum/${post.id}`} className={`${secondaryButtonClass} px-3 py-1.5 text-xs`}>取消</Link>
+                    </div>
                   </form>
+                ) : (
+                  <>
+                    <div className="mt-3">
+                      <MarkdownView content={reply.content} />
+                    </div>
+                    <ImageLightbox images={reply.imageUrls.map((url, index) => ({ url, alt: `回复配图 ${index + 1}` }))} />
+                  </>
                 )}
+
+                <div className="mt-3 flex flex-wrap items-center gap-2">
+                  {isReplyAuthor && !isEditing && (
+                    <Link href={`/forum/${post.id}?editReply=${reply.id}`} className={editLinkClass}>编辑</Link>
+                  )}
+                  {canDelete && (
+                    <ConfirmDelete
+                      action={deleteReplyAction}
+                      fields={{ replyId: reply.id, postId: post.id }}
+                      message={`确定要删除这条回复吗？${subReplies.length > 0 ? `该回复下还有 ${subReplies.length} 条楼中楼回复，也会一并删除。` : ""}`}
+                      buttonLabel="删除"
+                      buttonClassName={deleteLinkClass}
+                    />
+                  )}
+                  {isPostAuthor && !isEditing && (
+                    reply.isAccepted ? (
+                      <form action={unacceptReplyAction}>
+                        <input type="hidden" name="replyId" value={reply.id} />
+                        <input type="hidden" name="postId" value={post.id} />
+                        <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                        <SubmitButton variant="secondary" pendingText="..." className="px-2 py-1 text-xs border-success/40 bg-success/10 text-success hover:bg-success/20">
+                          取消采纳
+                        </SubmitButton>
+                      </form>
+                    ) : (
+                      <form action={acceptReplyAction}>
+                        <input type="hidden" name="replyId" value={reply.id} />
+                        <input type="hidden" name="postId" value={post.id} />
+                        <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                        <SubmitButton variant="secondary" pendingText="..." className="px-2 py-1 text-xs">
+                          采纳为最佳答案
+                        </SubmitButton>
+                      </form>
+                    )
+                  )}
+                  {!isEditing && (
+                    <InlineReplyForm
+                      postId={post.id}
+                      parentId={reply.id}
+                      replyToId={reply.id}
+                      atLabel={authorLabel}
+                    />
+                  )}
+                  <form action={toggleReplyLikeAction} className="ml-auto">
+                    <input type="hidden" name="replyId" value={reply.id} />
+                    <input type="hidden" name="postId" value={post.id} />
+                    <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                    <SubmitButton
+                      variant="secondary"
+                      pendingText="..."
+                      className={cn(
+                        "gap-1 px-2 py-1 text-xs",
+                        userLikedReply && "border-success/40 bg-success/10 text-success hover:bg-success/20",
+                      )}
+                    >
+                      <ThumbsUp className="size-3" />
+                      {reply._count.replyLikes > 0 ? reply._count.replyLikes : ""}
+                    </SubmitButton>
+                  </form>
+                  {!isEditing && (
+                    <form action={reportAction} className="flex gap-2">
+                      <input type="hidden" name="replyId" value={reply.id} />
+                      <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                      <input name="reason" placeholder="举报原因" className={`${inputClass} py-1 text-xs`} />
+                      <SubmitButton variant="secondary" pendingText="提交中..." className="px-2 py-1 text-xs">举报</SubmitButton>
+                    </form>
+                  )}
+                </div>
               </div>
+
+              {/* Sub-replies */}
+              {subReplies.length > 0 && (
+                <div className="border-t border-border/60">
+                  {subReplies.map((sub, subIndex) => {
+                    const subLabel = getDisplayName(sub);
+                    const atLabel = getAtLabel(sub.replyTo);
+                    const isSubAuthor = user.id === sub.authorId;
+                    const canDeleteSub = isSubAuthor || user.role === "ADMIN";
+                    const isEditingSub = editReplyId === sub.id && isSubAuthor;
+                    const userLikedSub = sub.replyLikes.length > 0;
+
+                    return (
+                      <div
+                        key={sub.id}
+                        className={cn(
+                          "px-5 py-3 sm:pl-10",
+                          subIndex < subReplies.length - 1 && "border-b border-border/40",
+                          "bg-elevated/20",
+                        )}
+                      >
+                        <div className="flex flex-wrap items-center gap-2">
+                          <Avatar
+                            url={sub.isAnonymous ? null : sub.author.avatarUrl}
+                            anonymous={sub.isAnonymous}
+                            size="xs"
+                            alt={subLabel}
+                          />
+                          <span className="text-xs text-text-secondary">
+                            <span className="font-medium text-text-primary">{subLabel}</span>
+                            {atLabel && (
+                              <span className="mx-1">
+                                回复 <span className="text-primary">@{atLabel}</span>
+                              </span>
+                            )}
+                            · {sub.createdAt.toLocaleString("zh-CN")}
+                          </span>
+                        </div>
+
+                        {isEditingSub ? (
+                          <form action={updateReplyAction} className="mt-2 grid gap-2">
+                            <input type="hidden" name="replyId" value={sub.id} />
+                            <input type="hidden" name="postId" value={post.id} />
+                            <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                            <textarea name="content" defaultValue={sub.content} className={`${inputClass} font-mono text-sm`} rows={4} required />
+                            <div className="flex gap-2">
+                              <SubmitButton pendingText="保存中..." className="px-3 py-1.5 text-xs">保存</SubmitButton>
+                              <Link href={`/forum/${post.id}`} className={`${secondaryButtonClass} px-3 py-1.5 text-xs`}>取消</Link>
+                            </div>
+                          </form>
+                        ) : (
+                          <>
+                            <div className="mt-2 text-sm text-text-primary">
+                              <MarkdownView content={sub.content} />
+                            </div>
+                            <ImageLightbox images={sub.imageUrls.map((url, index) => ({ url, alt: `楼中楼配图 ${index + 1}` }))} />
+                          </>
+                        )}
+
+                        <div className="mt-2 flex flex-wrap items-center gap-2">
+                          {isSubAuthor && !isEditingSub && (
+                            <Link href={`/forum/${post.id}?editReply=${sub.id}`} className={editLinkClass}>编辑</Link>
+                          )}
+                          {canDeleteSub && (
+                            <ConfirmDelete
+                              action={deleteReplyAction}
+                              fields={{ replyId: sub.id, postId: post.id }}
+                              message="确定要删除这条楼中楼回复吗？"
+                              buttonLabel="删除"
+                              buttonClassName={deleteLinkClass}
+                            />
+                          )}
+                          {!isEditingSub && (
+                            <InlineReplyForm
+                              postId={post.id}
+                              parentId={reply.id}
+                              replyToId={sub.id}
+                              atLabel={subLabel}
+                            />
+                          )}
+                          <form action={toggleReplyLikeAction} className="ml-auto">
+                            <input type="hidden" name="replyId" value={sub.id} />
+                            <input type="hidden" name="postId" value={post.id} />
+                            <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                            <SubmitButton
+                              variant="secondary"
+                              pendingText="..."
+                              className={cn(
+                                "gap-1 px-2 py-1 text-xs",
+                                userLikedSub && "border-success/40 bg-success/10 text-success hover:bg-success/20",
+                              )}
+                            >
+                              <ThumbsUp className="size-3" />
+                              {sub._count.replyLikes > 0 ? sub._count.replyLikes : ""}
+                            </SubmitButton>
+                          </form>
+                          {!isEditingSub && (
+                            <form action={reportAction} className="flex gap-2">
+                              <input type="hidden" name="replyId" value={sub.id} />
+                              <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                              <input name="reason" placeholder="举报原因" className={`${inputClass} py-1 text-xs`} />
+                              <SubmitButton variant="secondary" pendingText="提交中..." className="px-2 py-1 text-xs">举报</SubmitButton>
+                            </form>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           );
         })}
       </section>
 
+      {/* New top-level reply form */}
       <section className="mt-6 rounded-lg border border-border bg-surface p-5">
         <h2 className="text-lg font-black text-text-primary">添加回复</h2>
         <form action={replyAction} className="mt-4 grid gap-4">
@@ -323,8 +452,6 @@ export default async function ForumDetailPage({
 
 function anonymousLetter(index: number) {
   const letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ";
-  if (index < letters.length) {
-    return letters[index];
-  }
+  if (index < letters.length) return letters[index];
   return `${letters[index % letters.length]}${Math.floor(index / letters.length) + 1}`;
 }

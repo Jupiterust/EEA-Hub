@@ -298,15 +298,51 @@ export async function replyAction(formData: FormData) {
   try {
     const user = await requireUser();
     const isAnonymous = boolValue(formData, "isAnonymous");
-    const imageUrls = await uploadForumImages(formData, `forum/replies/${postId}/${user.id}`);
-    const [post] = await Promise.all([
+    const content = stringValue(formData, "content");
+    const parentIdInput = stringValue(formData, "parentId") || null;
+    const replyToIdInput = stringValue(formData, "replyToId") || null;
+
+    // Validate post and parent reply in parallel
+    const [post, parentReplyData] = await Promise.all([
       prisma.forumPost.findUnique({ where: { id: postId }, select: { authorId: true, title: true } }),
-      prisma.forumReply.create({
-        data: { postId, content: stringValue(formData, "content"), imageUrls, isAnonymous, authorId: user.id },
-      }),
+      parentIdInput
+        ? prisma.forumReply.findUnique({ where: { id: parentIdInput }, select: { postId: true, parentId: true } })
+        : Promise.resolve(null),
     ]);
-    if (post && post.authorId !== user.id) {
-      const actorName = isAnonymous ? "有匿名用户" : (user.name ?? "有用户");
+    if (!post) throw new Error("帖子不存在");
+
+    // Resolve parentId: flatten to 1 level (if someone passes a sub-reply id, go up to its parent)
+    let parentId: string | null = null;
+    let replyToId: string | null = null;
+    if (parentIdInput) {
+      if (!parentReplyData || parentReplyData.postId !== postId) throw new Error("被回复的回复不存在");
+      parentId = parentReplyData.parentId ?? parentIdInput;
+      replyToId = replyToIdInput ?? parentIdInput;
+    }
+
+    const imageUrls = await uploadForumImages(formData, `forum/replies/${postId}/${user.id}`);
+    await prisma.forumReply.create({
+      data: { postId, content, imageUrls, isAnonymous, authorId: user.id, parentId, replyToId },
+    });
+
+    const actorName = isAnonymous ? "有匿名用户" : (user.name ?? "有用户");
+    if (parentId && replyToId) {
+      // Sub-reply: notify the @-mentioned reply's author
+      const mentionedReply = await prisma.forumReply.findUnique({
+        where: { id: replyToId },
+        select: { authorId: true },
+      });
+      if (mentionedReply && mentionedReply.authorId !== user.id) {
+        await createNotification({
+          recipientId: mentionedReply.authorId,
+          type: "REPLY",
+          message: `${actorName}回复了你在《${post.title}》中的回复`,
+          linkUrl: `/forum/${postId}`,
+          relatedId: `reply:${replyToId}`,
+        });
+      }
+    } else if (post.authorId !== user.id) {
+      // Main reply: notify post author
       await createNotification({
         recipientId: post.authorId,
         type: "REPLY",
@@ -315,6 +351,7 @@ export async function replyAction(formData: FormData) {
         relatedId: postId,
       });
     }
+
     revalidatePath(`/forum/${postId}`);
     redirectWithSuccess(returnTo, "回复已发布");
   } catch (error) {
