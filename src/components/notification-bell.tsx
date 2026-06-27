@@ -2,8 +2,13 @@
 
 import { useState, useRef, useEffect, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import { Bell } from "lucide-react";
-import { markNotificationReadAction, markAllNotificationsReadAction } from "@/lib/actions";
+import { Bell, X } from "lucide-react";
+import {
+  markNotificationReadAction,
+  markAllNotificationsReadAction,
+  deleteNotificationAction,
+  clearReadNotificationsAction,
+} from "@/lib/actions";
 
 export type NotificationData = {
   id: string;
@@ -22,6 +27,8 @@ const typeIcon: Record<string, string> = {
   COMMENT: "📝",
 };
 
+const COLLAPSED_COUNT = 5;
+
 function useNotifications(initial: NotificationData[]) {
   const [notifications, setNotifications] = useState(initial);
   const [, startTransition] = useTransition();
@@ -39,20 +46,31 @@ function useNotifications(initial: NotificationData[]) {
     startTransition(() => { markAllNotificationsReadAction(); });
   }
 
+  function deleteOne(id: string) {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+    startTransition(() => { deleteNotificationAction(id); });
+  }
+
+  function clearRead() {
+    setNotifications((prev) => prev.filter((n) => !n.isRead));
+    startTransition(() => { clearReadNotificationsAction(); });
+  }
+
   function navigate(n: NotificationData) {
     markOne(n.id);
     router.push(n.linkUrl);
   }
 
-  return { notifications, markAll, navigate };
+  return { notifications, markAll, deleteOne, clearRead, navigate };
 }
 
 export function NotificationBell({ initialNotifications }: { initialNotifications: NotificationData[] }) {
   const [open, setOpen] = useState(false);
-  const { notifications, markAll, navigate } = useNotifications(initialNotifications);
+  const { notifications, markAll, deleteOne, clearRead, navigate } = useNotifications(initialNotifications);
   const ref = useRef<HTMLDivElement>(null);
 
   const unread = notifications.filter((n) => !n.isRead).length;
+  const hasRead = notifications.some((n) => n.isRead);
 
   useEffect(() => {
     function onMouseDown(e: MouseEvent) {
@@ -84,28 +102,41 @@ export function NotificationBell({ initialNotifications }: { initialNotification
         <div className="absolute right-0 top-full z-50 mt-2 w-80 overflow-hidden rounded-lg border border-border bg-surface shadow-2xl">
           <div className="flex items-center justify-between border-b border-border px-4 py-3">
             <h3 className="text-sm font-bold text-text-primary">通知</h3>
-            {unread > 0 && (
-              <button
-                type="button"
-                onClick={markAll}
-                className="text-xs text-primary hover:underline"
-              >
-                全部标记已读
-              </button>
-            )}
+            <div className="flex items-center gap-3">
+              {hasRead && (
+                <button
+                  type="button"
+                  onClick={clearRead}
+                  className="text-xs text-text-secondary hover:text-danger"
+                >
+                  清空已读
+                </button>
+              )}
+              {unread > 0 && (
+                <button
+                  type="button"
+                  onClick={markAll}
+                  className="text-xs text-primary hover:underline"
+                >
+                  全部标记已读
+                </button>
+              )}
+            </div>
           </div>
           <div className="max-h-96 overflow-y-auto">
             {notifications.length === 0 ? (
               <p className="px-4 py-8 text-center text-sm text-text-secondary">暂无通知</p>
             ) : (
               notifications.map((n) => (
-                <button
+                <div
                   key={n.id}
-                  type="button"
-                  onClick={() => { setOpen(false); navigate(n); }}
-                  className={`w-full border-b border-border px-4 py-3 text-left last:border-0 hover:bg-elevated transition-opacity ${n.isRead ? "opacity-60" : ""}`}
+                  className={`group flex items-start border-b border-border last:border-0 hover:bg-elevated ${n.isRead ? "opacity-60" : ""}`}
                 >
-                  <div className="flex items-start gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => { setOpen(false); navigate(n); }}
+                    className="flex min-w-0 flex-1 items-start gap-2.5 px-4 py-3 text-left"
+                  >
                     <span className="mt-0.5 shrink-0 text-sm">{typeIcon[n.type]}</span>
                     <div className="min-w-0 flex-1">
                       <p className="text-xs leading-snug text-text-primary">{n.message}</p>
@@ -117,8 +148,16 @@ export function NotificationBell({ initialNotifications }: { initialNotification
                     {!n.isRead && (
                       <span className="mt-1.5 h-2 w-2 shrink-0 rounded-full bg-primary" />
                     )}
-                  </div>
-                </button>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => deleteOne(n.id)}
+                    className="shrink-0 px-2 py-3 text-text-secondary opacity-0 transition-opacity group-hover:opacity-100 hover:text-danger"
+                    aria-label="删除通知"
+                  >
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
               ))
             )}
           </div>
@@ -129,8 +168,13 @@ export function NotificationBell({ initialNotifications }: { initialNotification
 }
 
 export function NotificationsSection({ initialNotifications }: { initialNotifications: NotificationData[] }) {
-  const { notifications, markAll, navigate } = useNotifications(initialNotifications);
+  const { notifications, markAll, deleteOne, clearRead, navigate } = useNotifications(initialNotifications);
+  const [expanded, setExpanded] = useState(false);
+
   const unread = notifications.filter((n) => !n.isRead).length;
+  const hasRead = notifications.some((n) => n.isRead);
+  const visible = expanded ? notifications : notifications.slice(0, COLLAPSED_COUNT);
+  const hasMore = notifications.length > COLLAPSED_COUNT;
 
   return (
     <section className="mt-6 rounded-lg border border-border bg-surface p-5">
@@ -143,43 +187,76 @@ export function NotificationsSection({ initialNotifications }: { initialNotifica
             </span>
           )}
         </h2>
-        {unread > 0 && (
-          <button
-            type="button"
-            onClick={markAll}
-            className="text-sm text-primary hover:underline"
-          >
-            全部标记已读
-          </button>
-        )}
+        <div className="flex items-center gap-3">
+          {hasRead && (
+            <button
+              type="button"
+              onClick={clearRead}
+              className="text-sm text-text-secondary hover:text-danger"
+            >
+              清空已读
+            </button>
+          )}
+          {unread > 0 && (
+            <button
+              type="button"
+              onClick={markAll}
+              className="text-sm text-primary hover:underline"
+            >
+              全部标记已读
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="mt-4 grid gap-2">
         {notifications.length === 0 ? (
           <p className="text-sm text-text-secondary">暂无通知。</p>
         ) : (
-          notifications.map((n) => (
-            <button
+          visible.map((n) => (
+            <div
               key={n.id}
-              type="button"
-              onClick={() => navigate(n)}
-              className={`flex w-full items-start gap-3 rounded-md border border-border p-3 text-left hover:bg-elevated transition-opacity ${n.isRead ? "opacity-60" : ""}`}
+              className={`group flex items-start rounded-md border border-border hover:bg-elevated ${n.isRead ? "opacity-60" : ""}`}
             >
-              <span className="mt-0.5 shrink-0 text-base">{typeIcon[n.type]}</span>
-              <div className="min-w-0 flex-1">
-                <p className="text-sm text-text-primary">{n.message}</p>
-                <p className="mt-0.5 text-xs text-text-secondary">
-                  {new Date(n.createdAt).toLocaleString("zh-CN")}
-                  {n.count > 1 && ` · 共 ${n.count} 次`}
-                </p>
-              </div>
-              {!n.isRead && (
-                <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-primary" />
-              )}
-            </button>
+              <button
+                type="button"
+                onClick={() => navigate(n)}
+                className="flex min-w-0 flex-1 items-start gap-3 p-3 text-left"
+              >
+                <span className="mt-0.5 shrink-0 text-base">{typeIcon[n.type]}</span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm text-text-primary">{n.message}</p>
+                  <p className="mt-0.5 text-xs text-text-secondary">
+                    {new Date(n.createdAt).toLocaleString("zh-CN")}
+                    {n.count > 1 && ` · 共 ${n.count} 次`}
+                  </p>
+                </div>
+                {!n.isRead && (
+                  <span className="mt-2 h-2 w-2 shrink-0 rounded-full bg-primary" />
+                )}
+              </button>
+              <button
+                type="button"
+                onClick={() => deleteOne(n.id)}
+                className="shrink-0 px-2 py-3 text-text-secondary opacity-0 transition-opacity group-hover:opacity-100 hover:text-danger"
+                aria-label="删除通知"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            </div>
           ))
         )}
       </div>
+
+      {hasMore && (
+        <button
+          type="button"
+          onClick={() => setExpanded((e) => !e)}
+          className="mt-3 w-full rounded-md border border-border py-2 text-sm text-text-secondary transition-colors hover:border-primary hover:text-primary"
+        >
+          {expanded ? "收起" : `展开全部（共 ${notifications.length} 条）`}
+        </button>
+      )}
     </section>
   );
 }

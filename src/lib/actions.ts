@@ -1092,6 +1092,22 @@ export async function markAllNotificationsReadAction() {
   }).catch(() => {});
 }
 
+export async function deleteNotificationAction(notificationId: string) {
+  const session = await auth();
+  if (!session?.user?.id) return;
+  await prisma.notification.deleteMany({
+    where: { id: notificationId, recipientId: session.user.id },
+  }).catch(() => {});
+}
+
+export async function clearReadNotificationsAction() {
+  const session = await auth();
+  if (!session?.user?.id) return;
+  await prisma.notification.deleteMany({
+    where: { recipientId: session.user.id, isRead: true },
+  }).catch(() => {});
+}
+
 export async function uploadAvatarAction(formData: FormData) {
   try {
     const user = await requireUser();
