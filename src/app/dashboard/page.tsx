@@ -37,6 +37,7 @@ export default async function DashboardPage({
         },
         select: { id: true, title: true },
       });
+      console.log("临期检查:", user.id, user.division, user.team, "找到作业:", dueSoon.length, dueSoon.map(a => a.title));
       for (const assignment of dueSoon) {
         const exists = await prisma.notification.findFirst({
           where: { recipientId: user.id, type: "DEADLINE", relatedId: assignment.id },

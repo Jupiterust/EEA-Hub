@@ -2,6 +2,7 @@ import { createPostAction } from "@/lib/actions";
 import { requireUser } from "@/lib/authz";
 import { DivisionTeamSelect } from "@/components/division-team-select";
 import { FeedbackBanner } from "@/components/feedback-banner";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { SubmitButton } from "@/components/submit-button";
 import { Field, inputClass } from "@/components/ui";
 
@@ -29,9 +30,7 @@ export default async function NewPostPage({
           <Field label="标签">
             <input name="tags" className={inputClass} placeholder="STM32 FPGA 视觉 控制算法" />
           </Field>
-          <Field label="正文">
-            <textarea name="content" className={`${inputClass} font-mono`} rows={12} required />
-          </Field>
+          <MarkdownEditor name="content" label="正文" rows={12} />
           <Field label="配图（选填，最多 9 张 jpg/png/webp）">
             <input name="images" type="file" accept="image/jpeg,image/png,image/webp" multiple className={inputClass} />
           </Field>

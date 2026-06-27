@@ -2,6 +2,7 @@ import { createDocAction } from "@/lib/actions";
 import { requireLeader } from "@/lib/authz";
 import { DivisionTeamSelect } from "@/components/division-team-select";
 import { FeedbackBanner } from "@/components/feedback-banner";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { SubmitButton } from "@/components/submit-button";
 import { Tooltip } from "@/components/tooltip";
 import { Field, inputClass } from "@/components/ui";
@@ -52,9 +53,7 @@ export default async function NewDocPage({
           <Field label="摘要">
             <textarea name="excerpt" className={inputClass} rows={3} />
           </Field>
-          <Field label="Markdown 正文">
-            <textarea name="content" className={`${inputClass} font-mono`} rows={18} required />
-          </Field>
+          <MarkdownEditor name="content" label="Markdown 正文" rows={18} />
           <SubmitButton pendingText="发布中...">发布文档</SubmitButton>
         </form>
       </div>

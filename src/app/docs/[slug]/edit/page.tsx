@@ -4,6 +4,7 @@ import { requireLeader } from "@/lib/authz";
 import { updateDocAction } from "@/lib/actions";
 import { DivisionTeamSelect } from "@/components/division-team-select";
 import { FeedbackBanner } from "@/components/feedback-banner";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { SubmitButton } from "@/components/submit-button";
 import { Tooltip } from "@/components/tooltip";
 import { Field, inputClass } from "@/components/ui";
@@ -60,15 +61,7 @@ export default async function EditDocPage({
           <Field label="摘要">
             <textarea name="excerpt" defaultValue={doc.excerpt ?? ""} className={inputClass} rows={3} />
           </Field>
-          <Field label="Markdown 正文">
-            <textarea
-              name="content"
-              defaultValue={doc.content}
-              className={`${inputClass} font-mono`}
-              rows={18}
-              required
-            />
-          </Field>
+          <MarkdownEditor name="content" label="Markdown 正文" defaultValue={doc.content} rows={18} />
           <SubmitButton pendingText="保存中...">保存更改</SubmitButton>
         </form>
       </div>

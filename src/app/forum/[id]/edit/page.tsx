@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/authz";
 import { updatePostAction } from "@/lib/actions";
 import { FeedbackBanner } from "@/components/feedback-banner";
 import { ImageManager } from "@/components/image-manager";
+import { MarkdownEditor } from "@/components/markdown-editor";
 import { SubmitButton } from "@/components/submit-button";
 import { Field, inputClass } from "@/components/ui";
 
@@ -65,15 +66,7 @@ export default async function EditPostPage({
               placeholder="STM32 FPGA 视觉 控制算法"
             />
           </Field>
-          <Field label="正文">
-            <textarea
-              name="content"
-              defaultValue={post.content}
-              className={`${inputClass} font-mono`}
-              rows={14}
-              required
-            />
-          </Field>
+          <MarkdownEditor name="content" label="正文" defaultValue={post.content} rows={14} />
           <div className="grid gap-1.5 text-sm font-semibold text-text-primary">
             <span>配图管理</span>
             <ImageManager existingImages={post.imageUrls} />
