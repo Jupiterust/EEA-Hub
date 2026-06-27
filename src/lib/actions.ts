@@ -6,7 +6,7 @@ import { hash } from "bcryptjs";
 import { AuthError } from "next-auth";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
-import { signIn, signOut } from "@/auth";
+import { signIn, signOut, auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { canManageScope, requireLeader, requireUser } from "@/lib/authz";
 import { uploadImageObject, uploadObject } from "@/lib/storage";
@@ -297,16 +297,24 @@ export async function replyAction(formData: FormData) {
   const returnTo = safeReturnTo(formData, postId ? `/forum/${postId}` : "/forum");
   try {
     const user = await requireUser();
+    const isAnonymous = boolValue(formData, "isAnonymous");
     const imageUrls = await uploadForumImages(formData, `forum/replies/${postId}/${user.id}`);
-    await prisma.forumReply.create({
-      data: {
-        postId,
-        content: stringValue(formData, "content"),
-        imageUrls,
-        isAnonymous: boolValue(formData, "isAnonymous"),
-        authorId: user.id,
-      },
-    });
+    const [post] = await Promise.all([
+      prisma.forumPost.findUnique({ where: { id: postId }, select: { authorId: true, title: true } }),
+      prisma.forumReply.create({
+        data: { postId, content: stringValue(formData, "content"), imageUrls, isAnonymous, authorId: user.id },
+      }),
+    ]);
+    if (post && post.authorId !== user.id) {
+      const actorName = isAnonymous ? "有匿名用户" : (user.name ?? "有用户");
+      await createNotification({
+        recipientId: post.authorId,
+        type: "REPLY",
+        message: `${actorName}回复了你的帖子《${post.title}》`,
+        linkUrl: `/forum/${postId}`,
+        relatedId: postId,
+      });
+    }
     revalidatePath(`/forum/${postId}`);
     redirectWithSuccess(returnTo, "回复已发布");
   } catch (error) {
@@ -500,6 +508,52 @@ async function uploadForumImages(formData: FormData, prefix: string) {
   return uploads.map((item) => item.url);
 }
 
+async function createNotification(data: {
+  recipientId: string;
+  type: "REPLY" | "ACCEPT" | "LIKE" | "COMMENT";
+  message: string;
+  linkUrl: string;
+  relatedId: string;
+}) {
+  try {
+    await prisma.notification.create({ data });
+  } catch {
+    // notification failure must never break the main action
+  }
+}
+
+async function upsertLikeNotification(data: {
+  recipientId: string;
+  linkUrl: string;
+  relatedId: string;
+  buildMessage: (count: number) => string;
+}) {
+  try {
+    const existing = await prisma.notification.findFirst({
+      where: { recipientId: data.recipientId, type: "LIKE", relatedId: data.relatedId, isRead: false },
+    });
+    if (existing) {
+      const newCount = existing.count + 1;
+      await prisma.notification.update({
+        where: { id: existing.id },
+        data: { count: newCount, message: data.buildMessage(newCount) },
+      });
+    } else {
+      await prisma.notification.create({
+        data: {
+          recipientId: data.recipientId,
+          type: "LIKE",
+          message: data.buildMessage(1),
+          linkUrl: data.linkUrl,
+          relatedId: data.relatedId,
+        },
+      });
+    }
+  } catch {
+    // notification failure must never break the main action
+  }
+}
+
 export async function updateDocAction(formData: FormData) {
   let slug = "";
   try {
@@ -676,8 +730,8 @@ export async function acceptReplyAction(formData: FormData) {
   try {
     const user = await requireUser();
     const [post, reply] = await Promise.all([
-      prisma.forumPost.findUniqueOrThrow({ where: { id: postId }, select: { authorId: true, solutionReplyId: true } }),
-      prisma.forumReply.findUniqueOrThrow({ where: { id: replyId }, select: { postId: true } }),
+      prisma.forumPost.findUniqueOrThrow({ where: { id: postId }, select: { authorId: true, solutionReplyId: true, title: true } }),
+      prisma.forumReply.findUniqueOrThrow({ where: { id: replyId }, select: { postId: true, authorId: true } }),
     ]);
     if (post.authorId !== user.id) throw new Error("只有楼主才能采纳最佳答案");
     if (reply.postId !== postId) throw new Error("回复不属于该帖子");
@@ -689,6 +743,15 @@ export async function acceptReplyAction(formData: FormData) {
       await tx.forumReply.update({ where: { id: replyId }, data: { isAccepted: true } });
       await tx.forumPost.update({ where: { id: postId }, data: { solutionReplyId: replyId, isSolved: true } });
     });
+    if (reply.authorId !== user.id) {
+      await createNotification({
+        recipientId: reply.authorId,
+        type: "ACCEPT",
+        message: `你的回复被采纳为最佳答案（帖子：《${post.title}》）`,
+        linkUrl: `/forum/${postId}`,
+        relatedId: replyId,
+      });
+    }
     revalidatePath(`/forum/${postId}`);
     revalidatePath("/forum");
   } catch (error) {
@@ -738,13 +801,23 @@ export async function togglePostLikeAction(formData: FormData) {
   const returnTo = safeReturnTo(formData, `/forum/${postId}`);
   try {
     const user = await requireUser();
-    const existing = await prisma.postLike.findUnique({
-      where: { userId_postId: { userId: user.id, postId } },
-    });
+    const [existing, post] = await Promise.all([
+      prisma.postLike.findUnique({ where: { userId_postId: { userId: user.id, postId } } }),
+      prisma.forumPost.findUnique({ where: { id: postId }, select: { authorId: true, title: true } }),
+    ]);
     if (existing) {
       await prisma.postLike.delete({ where: { userId_postId: { userId: user.id, postId } } });
     } else {
       await prisma.postLike.create({ data: { userId: user.id, postId } });
+      if (post && post.authorId !== user.id) {
+        await upsertLikeNotification({
+          recipientId: post.authorId,
+          linkUrl: `/forum/${postId}`,
+          relatedId: `post:${postId}`,
+          buildMessage: (count) =>
+            count === 1 ? `有人点赞了你的帖子《${post.title}》` : `${count} 人点赞了你的帖子《${post.title}》`,
+        });
+      }
     }
     revalidatePath(`/forum/${postId}`);
     revalidatePath("/forum");
@@ -760,13 +833,23 @@ export async function toggleReplyLikeAction(formData: FormData) {
   const returnTo = safeReturnTo(formData, `/forum/${postId}`);
   try {
     const user = await requireUser();
-    const existing = await prisma.replyLike.findUnique({
-      where: { userId_replyId: { userId: user.id, replyId } },
-    });
+    const [existing, reply] = await Promise.all([
+      prisma.replyLike.findUnique({ where: { userId_replyId: { userId: user.id, replyId } } }),
+      prisma.forumReply.findUnique({ where: { id: replyId }, select: { authorId: true } }),
+    ]);
     if (existing) {
       await prisma.replyLike.delete({ where: { userId_replyId: { userId: user.id, replyId } } });
     } else {
       await prisma.replyLike.create({ data: { userId: user.id, replyId } });
+      if (reply && reply.authorId !== user.id) {
+        await upsertLikeNotification({
+          recipientId: reply.authorId,
+          linkUrl: `/forum/${postId}`,
+          relatedId: `reply:${replyId}`,
+          buildMessage: (count) =>
+            count === 1 ? "有人点赞了你的回复" : `${count} 人点赞了你的回复`,
+        });
+      }
     }
     revalidatePath(`/forum/${postId}`);
   } catch (error) {
@@ -781,13 +864,23 @@ export async function toggleDocLikeAction(formData: FormData) {
   const returnTo = safeReturnTo(formData, `/docs/${slug}`);
   try {
     const user = await requireUser();
-    const existing = await prisma.docLike.findUnique({
-      where: { userId_docId: { userId: user.id, docId } },
-    });
+    const [existing, doc] = await Promise.all([
+      prisma.docLike.findUnique({ where: { userId_docId: { userId: user.id, docId } } }),
+      prisma.techDoc.findUnique({ where: { id: docId }, select: { authorId: true, title: true } }),
+    ]);
     if (existing) {
       await prisma.docLike.delete({ where: { userId_docId: { userId: user.id, docId } } });
     } else {
       await prisma.docLike.create({ data: { userId: user.id, docId } });
+      if (doc && doc.authorId !== user.id) {
+        await upsertLikeNotification({
+          recipientId: doc.authorId,
+          linkUrl: `/docs/${slug}`,
+          relatedId: `doc:${docId}`,
+          buildMessage: (count) =>
+            count === 1 ? `有人点赞了你的文档《${doc.title}》` : `${count} 人点赞了你的文档《${doc.title}》`,
+        });
+      }
     }
     revalidatePath(`/docs/${slug}`);
   } catch (error) {
@@ -805,9 +898,20 @@ export async function createDocCommentAction(formData: FormData) {
     const content = stringValue(formData, "content");
     if (!content) throw new Error("评论内容不能为空");
     const isAnonymous = boolValue(formData, "isAnonymous");
-    await prisma.docComment.create({
-      data: { docId, authorId: user.id, content, isAnonymous },
-    });
+    const [doc] = await Promise.all([
+      prisma.techDoc.findUnique({ where: { id: docId }, select: { authorId: true, title: true } }),
+      prisma.docComment.create({ data: { docId, authorId: user.id, content, isAnonymous } }),
+    ]);
+    if (doc && doc.authorId !== user.id) {
+      const actorName = isAnonymous ? "有匿名用户" : (user.name ?? "有用户");
+      await createNotification({
+        recipientId: doc.authorId,
+        type: "COMMENT",
+        message: `${actorName}评论了你的文档《${doc.title}》`,
+        linkUrl: `/docs/${slug}`,
+        relatedId: docId,
+      });
+    }
     revalidatePath(`/docs/${slug}`);
   } catch (error) {
     redirectWithError(returnTo, friendlyError(error, "评论发表失败，请稍后重试"));
@@ -855,19 +959,47 @@ export async function toggleDocCommentLikeAction(formData: FormData) {
   const returnTo = safeReturnTo(formData, `/docs/${slug}`);
   try {
     const user = await requireUser();
-    const existing = await prisma.docCommentLike.findUnique({
-      where: { userId_commentId: { userId: user.id, commentId } },
-    });
+    const [existing, comment] = await Promise.all([
+      prisma.docCommentLike.findUnique({ where: { userId_commentId: { userId: user.id, commentId } } }),
+      prisma.docComment.findUnique({ where: { id: commentId }, select: { authorId: true, docId: true } }),
+    ]);
     if (existing) {
       await prisma.docCommentLike.delete({ where: { userId_commentId: { userId: user.id, commentId } } });
     } else {
       await prisma.docCommentLike.create({ data: { userId: user.id, commentId } });
+      if (comment && comment.authorId !== user.id) {
+        await upsertLikeNotification({
+          recipientId: comment.authorId,
+          linkUrl: `/docs/${slug}`,
+          relatedId: `comment:${commentId}`,
+          buildMessage: (count) =>
+            count === 1 ? "有人点赞了你的评论" : `${count} 人点赞了你的评论`,
+        });
+      }
     }
     revalidatePath(`/docs/${slug}`);
   } catch (error) {
     redirectWithError(returnTo, friendlyError(error, "点赞操作失败，请稍后重试"));
   }
   redirect(returnTo);
+}
+
+export async function markNotificationReadAction(notificationId: string) {
+  const session = await auth();
+  if (!session?.user?.id) return;
+  await prisma.notification.updateMany({
+    where: { id: notificationId, recipientId: session.user.id },
+    data: { isRead: true },
+  }).catch(() => {});
+}
+
+export async function markAllNotificationsReadAction() {
+  const session = await auth();
+  if (!session?.user?.id) return;
+  await prisma.notification.updateMany({
+    where: { recipientId: session.user.id, isRead: false },
+    data: { isRead: true },
+  }).catch(() => {});
 }
 
 export async function uploadAvatarAction(formData: FormData) {

@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/authz";
 import { deleteDocAction, deleteDocCommentAction, deletePostAction, deleteReplyAction } from "@/lib/actions";
 import { AvatarUpload } from "@/components/avatar-upload";
 import { ConfirmDelete } from "@/components/confirm-delete";
+import { NotificationsSection, type NotificationData } from "@/components/notification-bell";
 import { Badge, editLinkClass, deleteLinkClass } from "@/components/ui";
 import { divisionLabels, roleLabels, statusLabels, teamLabels } from "@/lib/labels";
 import { FeedbackBanner } from "@/components/feedback-banner";
@@ -22,7 +23,7 @@ export default async function DashboardPage({
   const now = new Date();
   const soon = new Date(now.getTime() + 3 * 24 * 60 * 60 * 1000);
 
-  const [submissions, posts, anonPosts, anonReplies, docs, todos, adminStats, docComments, dbUser] = await Promise.all([
+  const [submissions, posts, anonPosts, anonReplies, docs, todos, adminStats, docComments, dbUser, notificationsRaw] = await Promise.all([
     prisma.submission.findMany({
       where: { studentId: user.id },
       include: { assignment: { select: { id: true, title: true, dueAt: true } } },
@@ -84,9 +85,24 @@ export default async function DashboardPage({
       where: { id: user.id },
       select: { avatarUrl: true },
     }),
+    prisma.notification.findMany({
+      where: { recipientId: user.id },
+      orderBy: [{ isRead: "asc" }, { updatedAt: "desc" }],
+      take: 30,
+    }),
   ]);
 
   const avatarUrl: string | null = dbUser?.avatarUrl ?? null;
+
+  const notifications: NotificationData[] = notificationsRaw.map((n) => ({
+    id: n.id,
+    type: n.type as NotificationData["type"],
+    message: n.message,
+    linkUrl: n.linkUrl,
+    isRead: n.isRead,
+    count: n.count,
+    createdAt: n.createdAt.toISOString(),
+  }));
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
@@ -107,6 +123,8 @@ export default async function DashboardPage({
           </div>
         </div>
       </section>
+
+      <NotificationsSection initialNotifications={notifications} />
 
       <section className="mt-6 grid gap-4 lg:grid-cols-3">
         {user.role === "MEMBER" ? (

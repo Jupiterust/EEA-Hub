@@ -56,6 +56,13 @@ enum ReportStatus {
   DISMISSED
 }
 
+enum NotificationType {
+  REPLY
+  ACCEPT
+  LIKE
+  COMMENT
+}
+
 model User {
   id             String    @id @default(cuid())
   username       String    @unique
@@ -90,6 +97,7 @@ model User {
   docLikes       DocLike[]
   docComments    DocComment[]
   docCommentLikes DocCommentLike[]
+  notifications   Notification[]   @relation("NotificationRecipient")
 }
 
 model InviteCode {
@@ -295,4 +303,21 @@ model DocCommentLike {
   createdAt DateTime   @default(now())
 
   @@id([userId, commentId])
+}
+
+model Notification {
+  id          String           @id @default(cuid())
+  recipientId String
+  recipient   User             @relation("NotificationRecipient", fields: [recipientId], references: [id], onDelete: Cascade)
+  type        NotificationType
+  message     String
+  linkUrl     String
+  relatedId   String
+  isRead      Boolean          @default(false)
+  count       Int              @default(1)
+  createdAt   DateTime         @default(now())
+  updatedAt   DateTime         @updatedAt
+
+  @@index([recipientId, isRead])
+  @@index([recipientId, type, relatedId])
 }

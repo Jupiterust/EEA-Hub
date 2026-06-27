@@ -1,2 +1,1 @@
-另外,"jpg/png/webp · 最大 2MB"这行提示文字弱化处理(字号更小、颜色更淡),或者移到角标的 hover 提示里,不要太抢眼。
-头像大小再放大一点，不影响其他部分
+上次执行站内通知功能(claude_code_task.md)时网络中断了。你已经完成了:Notification 表和 migration、createNotification 和 upsertLikeNotification 辅助函数、并在 replyAction/acceptReplyAction/togglePostLikeAction/toggleReplyLikeAction/toggleDocLikeAction/createDocCommentAction/toggleDocCommentLikeAction 里都加了通知埋点、还有 markNotificationReadAction 和 markAllNotificationsReadAction。但中断在创建 NotificationBell 组件这一步。请检查当前进度,完成剩余部分:顶部导航的通知铃铃组件(铃铛图标+未读红点+未读数+下拉面板)、通知列表展示、点击通知跳转并标记已读、个人主页的通知查看区。最后跑 npm run lint 和 npm run build 确保通过。

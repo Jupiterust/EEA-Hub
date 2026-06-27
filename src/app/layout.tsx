@@ -2,7 +2,9 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { auth } from "@/auth";
+import { prisma } from "@/lib/prisma";
 import { SubmitButton } from "@/components/submit-button";
+import { NotificationBell, type NotificationData } from "@/components/notification-bell";
 import { signOutAction } from "@/lib/actions";
 import "./globals.css";
 
@@ -35,6 +37,24 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
+
+  const notifications: NotificationData[] = session?.user?.id
+    ? (
+        await prisma.notification.findMany({
+          where: { recipientId: session.user.id },
+          orderBy: [{ isRead: "asc" }, { updatedAt: "desc" }],
+          take: 20,
+        })
+      ).map((n) => ({
+        id: n.id,
+        type: n.type as NotificationData["type"],
+        message: n.message,
+        linkUrl: n.linkUrl,
+        isRead: n.isRead,
+        count: n.count,
+        createdAt: n.createdAt.toISOString(),
+      }))
+    : [];
 
   return (
     <html
@@ -78,9 +98,12 @@ export default async function RootLayout({
             </nav>
             <div className="flex shrink-0 items-center gap-2">
               {session?.user ? (
-                <form action={signOutAction}>
-                  <SubmitButton variant="secondary" pendingText="退出中..." className="px-3">退出</SubmitButton>
-                </form>
+                <>
+                  <NotificationBell initialNotifications={notifications} />
+                  <form action={signOutAction}>
+                    <SubmitButton variant="secondary" pendingText="退出中..." className="px-3">退出</SubmitButton>
+                  </form>
+                </>
               ) : (
                 <>
                   <Link

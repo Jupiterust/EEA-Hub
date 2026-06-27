@@ -9,7 +9,7 @@ const sizes = {
   md: 40,
   lg: 80,
   xl: 96,
-  "2xl": 112,
+  "2xl": 128,
 };
 
 export function Avatar({
