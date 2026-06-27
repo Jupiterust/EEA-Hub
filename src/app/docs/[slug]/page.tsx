@@ -15,6 +15,7 @@ import { requireUser } from "@/lib/authz";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { DocTree } from "@/components/doc-tree";
 import { FeedbackBanner } from "@/components/feedback-banner";
+import { InlineCommentReplyForm } from "@/components/inline-comment-reply-form";
 import { MarkdownView } from "@/components/markdown-view";
 import { SubmitButton } from "@/components/submit-button";
 import { TableOfContents } from "@/components/table-of-contents";
@@ -89,6 +90,9 @@ export default async function DocDetailPage({
             commentLikes: currentUser
               ? { where: { userId: currentUser.id }, select: { userId: true } }
               : false,
+            replyTo: {
+              select: { id: true, authorId: true, isAnonymous: true, author: { select: { realName: true } } },
+            },
           },
           orderBy: { createdAt: "asc" },
         },
@@ -111,7 +115,7 @@ export default async function DocDetailPage({
   const userLikedDoc = Array.isArray(doc.docLikes) && doc.docLikes.length > 0;
   const docLikeCount = doc._count.docLikes;
 
-  // Build anonymous label map for comments in this doc
+  // Build anonymous label map across ALL comments (main + sub) in creation order
   const anonLabels = new Map<string, string>();
   let anonIndex = 0;
   for (const c of doc.comments) {
@@ -119,6 +123,28 @@ export default async function DocDetailPage({
     if (!anonLabels.has(c.authorId)) {
       anonLabels.set(c.authorId, `匿名用户${anonymousLetter(anonIndex++)}`);
     }
+  }
+
+  function getDisplayName(c: { isAnonymous: boolean; authorId: string; author: { realName: string } }) {
+    return c.isAnonymous ? (anonLabels.get(c.authorId) ?? "匿名用户") : c.author.realName;
+  }
+
+  function getAtLabel(
+    replyTo: { id: string; authorId: string; isAnonymous: boolean; author: { realName: string } } | null,
+  ) {
+    if (!replyTo) return null;
+    if (replyTo.isAnonymous) return anonLabels.get(replyTo.authorId) ?? "匿名用户";
+    return replyTo.author.realName;
+  }
+
+  // Separate main and sub comments
+  const mainComments = doc.comments.filter((c) => c.parentId === null);
+  const subCommentsMap = new Map<string, typeof doc.comments>();
+  for (const c of doc.comments) {
+    if (c.parentId === null) continue;
+    const list = subCommentsMap.get(c.parentId) ?? [];
+    list.push(c);
+    subCommentsMap.set(c.parentId, list);
   }
 
   const headings = extractHeadings(doc.content);
@@ -221,87 +247,228 @@ export default async function DocDetailPage({
             </h2>
 
             <div className="grid gap-3">
-              {doc.comments.map((comment) => {
-                const authorLabel = comment.isAnonymous
-                  ? (anonLabels.get(comment.authorId) ?? "匿名用户")
-                  : comment.author.realName;
+              {mainComments.map((comment) => {
+                const authorLabel = getDisplayName(comment);
                 const isCommentAuthor = currentUserId === comment.authorId;
                 const canDeleteComment = isCommentAuthor || currentUserRole === "ADMIN";
                 const isEditing = editCommentId === comment.id && isCommentAuthor;
                 const userLikedComment = Array.isArray(comment.commentLikes) && comment.commentLikes.length > 0;
                 const commentLikeCount = comment._count.commentLikes;
+                const subComments = subCommentsMap.get(comment.id) ?? [];
 
                 return (
-                  <div key={comment.id} className="rounded-lg border border-border bg-surface p-4">
-                    <div className="flex items-center gap-2 text-sm text-text-secondary">
-                      <Avatar
-                        url={comment.isAnonymous ? null : comment.author.avatarUrl}
-                        anonymous={comment.isAnonymous}
-                        size="xs"
-                        alt={authorLabel}
-                      />
-                      <span>{authorLabel} · {comment.createdAt.toLocaleString("zh-CN")}</span>
-                    </div>
-
-                    {isEditing ? (
-                      <form action={updateDocCommentAction} className="mt-3 grid gap-3">
-                        <input type="hidden" name="commentId" value={comment.id} />
-                        <input type="hidden" name="slug" value={slug} />
-                        <input type="hidden" name="returnTo" value={`/docs/${slug}`} />
-                        <textarea
-                          name="content"
-                          defaultValue={comment.content}
-                          className={`${inputClass} font-mono`}
-                          rows={4}
-                          required
-                        />
-                        <div className="flex gap-2">
-                          <SubmitButton pendingText="保存中..." className="text-xs px-3 py-1.5">保存</SubmitButton>
-                          <Link href={`/docs/${slug}`} className={`${secondaryButtonClass} text-xs px-3 py-1.5`}>取消</Link>
-                        </div>
-                      </form>
+                  <div
+                    key={comment.id}
+                    id={`comment-${comment.id}`}
+                    className="scroll-mt-20 rounded-lg border border-border bg-surface"
+                  >
+                    {/* Main comment — soft-deleted placeholder */}
+                    {comment.isDeleted ? (
+                      <div className="p-4">
+                        <p className="text-sm italic text-text-secondary">[该评论已删除]</p>
+                      </div>
                     ) : (
-                      <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-text-primary">{comment.content}</p>
+                      <div className="p-4">
+                        <div className="flex items-center gap-2 text-sm text-text-secondary">
+                          <Avatar
+                            url={comment.isAnonymous ? null : comment.author.avatarUrl}
+                            anonymous={comment.isAnonymous}
+                            size="xs"
+                            alt={authorLabel}
+                          />
+                          <span>{authorLabel} · {comment.createdAt.toLocaleString("zh-CN")}</span>
+                        </div>
+
+                        {isEditing ? (
+                          <form action={updateDocCommentAction} className="mt-3 grid gap-3">
+                            <input type="hidden" name="commentId" value={comment.id} />
+                            <input type="hidden" name="slug" value={slug} />
+                            <input type="hidden" name="returnTo" value={`/docs/${slug}`} />
+                            <textarea
+                              name="content"
+                              defaultValue={comment.content}
+                              className={`${inputClass} font-mono`}
+                              rows={4}
+                              required
+                            />
+                            <div className="flex gap-2">
+                              <SubmitButton pendingText="保存中..." className="text-xs px-3 py-1.5">保存</SubmitButton>
+                              <Link href={`/docs/${slug}`} className={`${secondaryButtonClass} text-xs px-3 py-1.5`}>取消</Link>
+                            </div>
+                          </form>
+                        ) : (
+                          <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-text-primary">{comment.content}</p>
+                        )}
+
+                        <div className="mt-3 flex flex-wrap items-center gap-2">
+                          {isCommentAuthor && !isEditing && (
+                            <Link href={`/docs/${slug}?editComment=${comment.id}`} className={editLinkClass}>编辑</Link>
+                          )}
+                          {canDeleteComment && (
+                            <ConfirmDelete
+                              action={deleteDocCommentAction}
+                              fields={{ commentId: comment.id, slug }}
+                              message="确定要删除这条评论吗？"
+                              buttonLabel="删除"
+                              buttonClassName={deleteLinkClass}
+                            />
+                          )}
+                          {currentUser && !isEditing && (
+                            <InlineCommentReplyForm
+                              docId={doc.id}
+                              slug={slug}
+                              parentId={comment.id}
+                              replyToId={comment.id}
+                              atLabel={authorLabel}
+                            />
+                          )}
+                          {currentUser && (
+                            <form action={toggleDocCommentLikeAction} className="ml-auto">
+                              <input type="hidden" name="commentId" value={comment.id} />
+                              <input type="hidden" name="slug" value={slug} />
+                              <input type="hidden" name="returnTo" value={`/docs/${slug}`} />
+                              <SubmitButton
+                                variant="secondary"
+                                pendingText="..."
+                                className={cn(
+                                  "gap-1 px-2 py-1 text-xs",
+                                  userLikedComment && "border-success/40 bg-success/10 text-success hover:bg-success/20",
+                                )}
+                              >
+                                <ThumbsUp className="size-3" />
+                                {commentLikeCount > 0 ? commentLikeCount : ""}
+                              </SubmitButton>
+                            </form>
+                          )}
+                        </div>
+                      </div>
                     )}
 
-                    <div className="mt-3 flex flex-wrap items-center gap-2">
-                      {isCommentAuthor && !isEditing && (
-                        <Link href={`/docs/${slug}?editComment=${comment.id}`} className={editLinkClass}>编辑</Link>
-                      )}
-                      {canDeleteComment && (
-                        <ConfirmDelete
-                          action={deleteDocCommentAction}
-                          fields={{ commentId: comment.id, slug }}
-                          message="确定要删除这条评论吗？"
-                          buttonLabel="删除"
-                          buttonClassName={deleteLinkClass}
-                        />
-                      )}
-                      {currentUser && (
-                        <form action={toggleDocCommentLikeAction} className="ml-auto">
-                          <input type="hidden" name="commentId" value={comment.id} />
-                          <input type="hidden" name="slug" value={slug} />
-                          <input type="hidden" name="returnTo" value={`/docs/${slug}`} />
-                          <SubmitButton
-                            variant="secondary"
-                            pendingText="..."
-                            className={cn(
-                              "gap-1 px-2 py-1 text-xs",
-                              userLikedComment && "border-success/40 bg-success/10 text-success hover:bg-success/20",
-                            )}
-                          >
-                            <ThumbsUp className="size-3" />
-                            {commentLikeCount > 0 ? commentLikeCount : ""}
-                          </SubmitButton>
-                        </form>
-                      )}
-                    </div>
+                    {/* Sub-comments */}
+                    {subComments.length > 0 && (
+                      <div className="border-t border-border/60">
+                        {subComments.map((sub, subIndex) => {
+                          const subLabel = getDisplayName(sub);
+                          const atLabel = getAtLabel(sub.replyTo);
+                          const isSubAuthor = currentUserId === sub.authorId;
+                          const canDeleteSub = isSubAuthor || currentUserRole === "ADMIN";
+                          const isEditingSub = editCommentId === sub.id && isSubAuthor;
+                          const userLikedSub = Array.isArray(sub.commentLikes) && sub.commentLikes.length > 0;
+                          const subLikeCount = sub._count.commentLikes;
+
+                          return (
+                            <div
+                              key={sub.id}
+                              id={`comment-${sub.id}`}
+                              className={cn(
+                                "scroll-mt-20 px-4 py-3 sm:pl-10",
+                                subIndex < subComments.length - 1 && "border-b border-border/40",
+                                "bg-elevated/20",
+                              )}
+                            >
+                              {sub.isDeleted ? (
+                                <p className="text-sm italic text-text-secondary">[该评论已删除]</p>
+                              ) : (
+                                <>
+                                  <div className="flex flex-wrap items-center gap-2">
+                                    <Avatar
+                                      url={sub.isAnonymous ? null : sub.author.avatarUrl}
+                                      anonymous={sub.isAnonymous}
+                                      size="xs"
+                                      alt={subLabel}
+                                    />
+                                    <span className="text-xs text-text-secondary">
+                                      <span className="font-medium text-text-primary">{subLabel}</span>
+                                      {atLabel && sub.replyToId && (
+                                        <span className="mx-1">
+                                          回复{" "}
+                                          <a
+                                            href={`#comment-${sub.replyToId}`}
+                                            className="text-primary hover:underline"
+                                          >
+                                            @{atLabel}
+                                          </a>
+                                        </span>
+                                      )}
+                                      · {sub.createdAt.toLocaleString("zh-CN")}
+                                    </span>
+                                  </div>
+
+                                  {isEditingSub ? (
+                                    <form action={updateDocCommentAction} className="mt-2 grid gap-2">
+                                      <input type="hidden" name="commentId" value={sub.id} />
+                                      <input type="hidden" name="slug" value={slug} />
+                                      <input type="hidden" name="returnTo" value={`/docs/${slug}`} />
+                                      <textarea
+                                        name="content"
+                                        defaultValue={sub.content}
+                                        className={`${inputClass} font-mono text-sm`}
+                                        rows={4}
+                                        required
+                                      />
+                                      <div className="flex gap-2">
+                                        <SubmitButton pendingText="保存中..." className="px-3 py-1.5 text-xs">保存</SubmitButton>
+                                        <Link href={`/docs/${slug}`} className={`${secondaryButtonClass} px-3 py-1.5 text-xs`}>取消</Link>
+                                      </div>
+                                    </form>
+                                  ) : (
+                                    <p className="mt-2 whitespace-pre-wrap text-sm leading-7 text-text-primary">{sub.content}</p>
+                                  )}
+
+                                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                                    {isSubAuthor && !isEditingSub && (
+                                      <Link href={`/docs/${slug}?editComment=${sub.id}`} className={editLinkClass}>编辑</Link>
+                                    )}
+                                    {canDeleteSub && (
+                                      <ConfirmDelete
+                                        action={deleteDocCommentAction}
+                                        fields={{ commentId: sub.id, slug }}
+                                        message="确定要删除这条评论吗？"
+                                        buttonLabel="删除"
+                                        buttonClassName={deleteLinkClass}
+                                      />
+                                    )}
+                                    {currentUser && !isEditingSub && (
+                                      <InlineCommentReplyForm
+                                        docId={doc.id}
+                                        slug={slug}
+                                        parentId={comment.id}
+                                        replyToId={sub.id}
+                                        atLabel={subLabel}
+                                      />
+                                    )}
+                                    {currentUser && (
+                                      <form action={toggleDocCommentLikeAction} className="ml-auto">
+                                        <input type="hidden" name="commentId" value={sub.id} />
+                                        <input type="hidden" name="slug" value={slug} />
+                                        <input type="hidden" name="returnTo" value={`/docs/${slug}`} />
+                                        <SubmitButton
+                                          variant="secondary"
+                                          pendingText="..."
+                                          className={cn(
+                                            "gap-1 px-2 py-1 text-xs",
+                                            userLikedSub && "border-success/40 bg-success/10 text-success hover:bg-success/20",
+                                          )}
+                                        >
+                                          <ThumbsUp className="size-3" />
+                                          {subLikeCount > 0 ? subLikeCount : ""}
+                                        </SubmitButton>
+                                      </form>
+                                    )}
+                                  </div>
+                                </>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
                   </div>
                 );
               })}
             </div>
 
-            {/* New comment form */}
+            {/* New top-level comment form */}
             {currentUser ? (
               <div className="mt-4 rounded-lg border border-border bg-surface p-5">
                 <h3 className="text-base font-bold text-text-primary">发表评论</h3>

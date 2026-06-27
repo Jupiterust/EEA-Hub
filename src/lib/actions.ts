@@ -945,12 +945,46 @@ export async function createDocCommentAction(formData: FormData) {
     const content = stringValue(formData, "content");
     if (!content) throw new Error("评论内容不能为空");
     const isAnonymous = boolValue(formData, "isAnonymous");
-    const [doc] = await Promise.all([
+    const parentIdInput = stringValue(formData, "parentId") || null;
+    const replyToIdInput = stringValue(formData, "replyToId") || null;
+
+    const [doc, parentCommentData] = await Promise.all([
       prisma.techDoc.findUnique({ where: { id: docId }, select: { authorId: true, title: true } }),
-      prisma.docComment.create({ data: { docId, authorId: user.id, content, isAnonymous } }),
+      parentIdInput
+        ? prisma.docComment.findUnique({ where: { id: parentIdInput }, select: { docId: true, parentId: true } })
+        : Promise.resolve(null),
     ]);
-    if (doc && doc.authorId !== user.id) {
-      const actorName = isAnonymous ? "有匿名用户" : (user.name ?? "有用户");
+    if (!doc) throw new Error("文档不存在");
+
+    // Flatten to 1 level: if parent is itself a sub-comment, go up to its parent
+    let parentId: string | null = null;
+    let replyToId: string | null = null;
+    if (parentIdInput) {
+      if (!parentCommentData || parentCommentData.docId !== docId) throw new Error("被回复的评论不存在");
+      parentId = parentCommentData.parentId ?? parentIdInput;
+      replyToId = replyToIdInput ?? parentIdInput;
+    }
+
+    await prisma.docComment.create({ data: { docId, authorId: user.id, content, isAnonymous, parentId, replyToId } });
+
+    const actorName = isAnonymous ? "有匿名用户" : (user.name ?? "有用户");
+    if (parentId && replyToId) {
+      // Sub-comment: notify the @-mentioned comment's author
+      const mentionedComment = await prisma.docComment.findUnique({
+        where: { id: replyToId },
+        select: { authorId: true },
+      });
+      if (mentionedComment && mentionedComment.authorId !== user.id) {
+        await createNotification({
+          recipientId: mentionedComment.authorId,
+          type: "REPLY",
+          message: `${actorName}回复了你在文档《${doc.title}》中的评论`,
+          linkUrl: `/docs/${slug}`,
+          relatedId: `comment:${replyToId}`,
+        });
+      }
+    } else if (doc.authorId !== user.id) {
+      // Top-level comment: notify doc author
       await createNotification({
         recipientId: doc.authorId,
         type: "COMMENT",
@@ -959,6 +993,7 @@ export async function createDocCommentAction(formData: FormData) {
         relatedId: docId,
       });
     }
+
     revalidatePath(`/docs/${slug}`);
   } catch (error) {
     redirectWithError(returnTo, friendlyError(error, "评论发表失败，请稍后重试"));
@@ -990,9 +1025,17 @@ export async function deleteDocCommentAction(formData: FormData) {
   const returnTo = safeReturnTo(formData, `/docs/${slug}`);
   try {
     const user = await requireUser();
-    const comment = await prisma.docComment.findUniqueOrThrow({ where: { id: commentId } });
+    const [comment, childCount, mentionCount] = await Promise.all([
+      prisma.docComment.findUniqueOrThrow({ where: { id: commentId } }),
+      prisma.docComment.count({ where: { parentId: commentId } }),
+      prisma.docComment.count({ where: { replyToId: commentId } }),
+    ]);
     if (comment.authorId !== user.id && user.role !== "ADMIN") throw new Error("无权删除该评论");
-    await prisma.docComment.delete({ where: { id: commentId } });
+    if (childCount > 0 || mentionCount > 0) {
+      await prisma.docComment.update({ where: { id: commentId }, data: { isDeleted: true } });
+    } else {
+      await prisma.docComment.delete({ where: { id: commentId } });
+    }
     revalidatePath(`/docs/${slug}`);
   } catch (error) {
     redirectWithError(returnTo, friendlyError(error, "评论删除失败，请稍后重试"));

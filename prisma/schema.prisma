@@ -293,6 +293,7 @@ model DocComment {
   id          String   @id @default(cuid())
   content     String
   isAnonymous Boolean  @default(false)
+  isDeleted   Boolean  @default(false)
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
   docId       String
@@ -300,8 +301,14 @@ model DocComment {
   authorId    String
   author      User     @relation(fields: [authorId], references: [id])
   commentLikes DocCommentLike[]
+  parentId    String?
+  parent      DocComment?  @relation("SubComments", fields: [parentId], references: [id], onDelete: Cascade)
+  children    DocComment[] @relation("SubComments")
+  replyToId   String?
+  replyTo     DocComment?  @relation("CommentMentions", fields: [replyToId], references: [id], onDelete: SetNull)
+  replyMentions DocComment[] @relation("CommentMentions")
 
-  @@index([docId])
+  @@index([docId, parentId])
 }
 
 model DocCommentLike {

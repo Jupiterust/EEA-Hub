@@ -34,7 +34,8 @@ html {
   100% { box-shadow: none; }
 }
 
-[id^="reply-"]:target {
+[id^="reply-"]:target,
+[id^="comment-"]:target {
   animation: reply-highlight 2s ease-out forwards;
 }
 
