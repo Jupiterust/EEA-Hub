@@ -177,6 +177,7 @@ model ForumReply {
   imageUrls    String[]  @default([])
   isAnonymous  Boolean   @default(false)
   isAccepted   Boolean   @default(false)
+  isDeleted    Boolean   @default(false)
   createdAt    DateTime  @default(now())
   updatedAt    DateTime  @updatedAt
   postId       String

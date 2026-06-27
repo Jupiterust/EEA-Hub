@@ -198,12 +198,18 @@ export default async function ForumDetailPage({
           return (
             <div
               key={reply.id}
+              id={`reply-${reply.id}`}
               className={cn(
-                "rounded-lg border bg-surface",
+                "scroll-mt-20 rounded-lg border bg-surface",
                 reply.isAccepted ? "border-success/40 ring-1 ring-success/20" : "border-border",
               )}
             >
-              {/* Main reply */}
+              {/* Main reply — soft-deleted placeholder */}
+              {reply.isDeleted ? (
+                <div className="p-5">
+                  <p className="text-sm italic text-text-secondary">[该回复已删除]</p>
+                </div>
+              ) : (
               <div className="p-5">
                 <div className="flex flex-wrap items-center gap-2">
                   <Avatar
@@ -250,7 +256,11 @@ export default async function ForumDetailPage({
                     <ConfirmDelete
                       action={deleteReplyAction}
                       fields={{ replyId: reply.id, postId: post.id }}
-                      message={`确定要删除这条回复吗？${subReplies.length > 0 ? `该回复下还有 ${subReplies.length} 条楼中楼回复，也会一并删除。` : ""}`}
+                      message={
+                        subReplies.length > 0
+                          ? `确定要删除这条回复吗？该回复下还有 ${subReplies.length} 条楼中楼回复，删除后将显示为"[该回复已删除]"占位，子回复仍保留。`
+                          : "确定要删除这条回复吗？"
+                      }
                       buttonLabel="删除"
                       buttonClassName={deleteLinkClass}
                     />
@@ -310,6 +320,7 @@ export default async function ForumDetailPage({
                   )}
                 </div>
               </div>
+              )}
 
               {/* Sub-replies */}
               {subReplies.length > 0 && (
@@ -325,96 +336,109 @@ export default async function ForumDetailPage({
                     return (
                       <div
                         key={sub.id}
+                        id={`reply-${sub.id}`}
                         className={cn(
-                          "px-5 py-3 sm:pl-10",
+                          "scroll-mt-20 px-5 py-3 sm:pl-10",
                           subIndex < subReplies.length - 1 && "border-b border-border/40",
                           "bg-elevated/20",
                         )}
                       >
-                        <div className="flex flex-wrap items-center gap-2">
-                          <Avatar
-                            url={sub.isAnonymous ? null : sub.author.avatarUrl}
-                            anonymous={sub.isAnonymous}
-                            size="xs"
-                            alt={subLabel}
-                          />
-                          <span className="text-xs text-text-secondary">
-                            <span className="font-medium text-text-primary">{subLabel}</span>
-                            {atLabel && (
-                              <span className="mx-1">
-                                回复 <span className="text-primary">@{atLabel}</span>
-                              </span>
-                            )}
-                            · {sub.createdAt.toLocaleString("zh-CN")}
-                          </span>
-                        </div>
-
-                        {isEditingSub ? (
-                          <form action={updateReplyAction} className="mt-2 grid gap-2">
-                            <input type="hidden" name="replyId" value={sub.id} />
-                            <input type="hidden" name="postId" value={post.id} />
-                            <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
-                            <textarea name="content" defaultValue={sub.content} className={`${inputClass} font-mono text-sm`} rows={4} required />
-                            <div className="flex gap-2">
-                              <SubmitButton pendingText="保存中..." className="px-3 py-1.5 text-xs">保存</SubmitButton>
-                              <Link href={`/forum/${post.id}`} className={`${secondaryButtonClass} px-3 py-1.5 text-xs`}>取消</Link>
-                            </div>
-                          </form>
+                        {sub.isDeleted ? (
+                          <p className="text-sm italic text-text-secondary">[该回复已删除]</p>
                         ) : (
                           <>
-                            <div className="mt-2 text-sm text-text-primary">
-                              <MarkdownView content={sub.content} />
+                            <div className="flex flex-wrap items-center gap-2">
+                              <Avatar
+                                url={sub.isAnonymous ? null : sub.author.avatarUrl}
+                                anonymous={sub.isAnonymous}
+                                size="xs"
+                                alt={subLabel}
+                              />
+                              <span className="text-xs text-text-secondary">
+                                <span className="font-medium text-text-primary">{subLabel}</span>
+                                {atLabel && sub.replyToId && (
+                                  <span className="mx-1">
+                                    回复{" "}
+                                    <a
+                                      href={`#reply-${sub.replyToId}`}
+                                      className="text-primary hover:underline"
+                                    >
+                                      @{atLabel}
+                                    </a>
+                                  </span>
+                                )}
+                                · {sub.createdAt.toLocaleString("zh-CN")}
+                              </span>
                             </div>
-                            <ImageLightbox images={sub.imageUrls.map((url, index) => ({ url, alt: `楼中楼配图 ${index + 1}` }))} />
+
+                            {isEditingSub ? (
+                              <form action={updateReplyAction} className="mt-2 grid gap-2">
+                                <input type="hidden" name="replyId" value={sub.id} />
+                                <input type="hidden" name="postId" value={post.id} />
+                                <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                                <textarea name="content" defaultValue={sub.content} className={`${inputClass} font-mono text-sm`} rows={4} required />
+                                <div className="flex gap-2">
+                                  <SubmitButton pendingText="保存中..." className="px-3 py-1.5 text-xs">保存</SubmitButton>
+                                  <Link href={`/forum/${post.id}`} className={`${secondaryButtonClass} px-3 py-1.5 text-xs`}>取消</Link>
+                                </div>
+                              </form>
+                            ) : (
+                              <>
+                                <div className="mt-2 text-sm text-text-primary">
+                                  <MarkdownView content={sub.content} />
+                                </div>
+                                <ImageLightbox images={sub.imageUrls.map((url, index) => ({ url, alt: `楼中楼配图 ${index + 1}` }))} />
+                              </>
+                            )}
+
+                            <div className="mt-2 flex flex-wrap items-center gap-2">
+                              {isSubAuthor && !isEditingSub && (
+                                <Link href={`/forum/${post.id}?editReply=${sub.id}`} className={editLinkClass}>编辑</Link>
+                              )}
+                              {canDeleteSub && (
+                                <ConfirmDelete
+                                  action={deleteReplyAction}
+                                  fields={{ replyId: sub.id, postId: post.id }}
+                                  message="确定要删除这条楼中楼回复吗？"
+                                  buttonLabel="删除"
+                                  buttonClassName={deleteLinkClass}
+                                />
+                              )}
+                              {!isEditingSub && (
+                                <InlineReplyForm
+                                  postId={post.id}
+                                  parentId={reply.id}
+                                  replyToId={sub.id}
+                                  atLabel={subLabel}
+                                />
+                              )}
+                              <form action={toggleReplyLikeAction} className="ml-auto">
+                                <input type="hidden" name="replyId" value={sub.id} />
+                                <input type="hidden" name="postId" value={post.id} />
+                                <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                                <SubmitButton
+                                  variant="secondary"
+                                  pendingText="..."
+                                  className={cn(
+                                    "gap-1 px-2 py-1 text-xs",
+                                    userLikedSub && "border-success/40 bg-success/10 text-success hover:bg-success/20",
+                                  )}
+                                >
+                                  <ThumbsUp className="size-3" />
+                                  {sub._count.replyLikes > 0 ? sub._count.replyLikes : ""}
+                                </SubmitButton>
+                              </form>
+                              {!isEditingSub && (
+                                <form action={reportAction} className="flex gap-2">
+                                  <input type="hidden" name="replyId" value={sub.id} />
+                                  <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+                                  <input name="reason" placeholder="举报原因" className={`${inputClass} py-1 text-xs`} />
+                                  <SubmitButton variant="secondary" pendingText="提交中..." className="px-2 py-1 text-xs">举报</SubmitButton>
+                                </form>
+                              )}
+                            </div>
                           </>
                         )}
-
-                        <div className="mt-2 flex flex-wrap items-center gap-2">
-                          {isSubAuthor && !isEditingSub && (
-                            <Link href={`/forum/${post.id}?editReply=${sub.id}`} className={editLinkClass}>编辑</Link>
-                          )}
-                          {canDeleteSub && (
-                            <ConfirmDelete
-                              action={deleteReplyAction}
-                              fields={{ replyId: sub.id, postId: post.id }}
-                              message="确定要删除这条楼中楼回复吗？"
-                              buttonLabel="删除"
-                              buttonClassName={deleteLinkClass}
-                            />
-                          )}
-                          {!isEditingSub && (
-                            <InlineReplyForm
-                              postId={post.id}
-                              parentId={reply.id}
-                              replyToId={sub.id}
-                              atLabel={subLabel}
-                            />
-                          )}
-                          <form action={toggleReplyLikeAction} className="ml-auto">
-                            <input type="hidden" name="replyId" value={sub.id} />
-                            <input type="hidden" name="postId" value={post.id} />
-                            <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
-                            <SubmitButton
-                              variant="secondary"
-                              pendingText="..."
-                              className={cn(
-                                "gap-1 px-2 py-1 text-xs",
-                                userLikedSub && "border-success/40 bg-success/10 text-success hover:bg-success/20",
-                              )}
-                            >
-                              <ThumbsUp className="size-3" />
-                              {sub._count.replyLikes > 0 ? sub._count.replyLikes : ""}
-                            </SubmitButton>
-                          </form>
-                          {!isEditingSub && (
-                            <form action={reportAction} className="flex gap-2">
-                              <input type="hidden" name="replyId" value={sub.id} />
-                              <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
-                              <input name="reason" placeholder="举报原因" className={`${inputClass} py-1 text-xs`} />
-                              <SubmitButton variant="secondary" pendingText="提交中..." className="px-2 py-1 text-xs">举报</SubmitButton>
-                            </form>
-                          )}
-                        </div>
                       </div>
                     );
                   })}

@@ -745,13 +745,23 @@ export async function deleteReplyAction(formData: FormData) {
   try {
     const user = await requireUser();
     const replyId = stringValue(formData, "replyId");
-    const reply = await prisma.forumReply.findUniqueOrThrow({ where: { id: replyId } });
+    const [reply, childCount, mentionCount] = await Promise.all([
+      prisma.forumReply.findUniqueOrThrow({ where: { id: replyId } }),
+      prisma.forumReply.count({ where: { parentId: replyId } }),
+      prisma.forumReply.count({ where: { replyToId: replyId } }),
+    ]);
 
     if (reply.authorId !== user.id && user.role !== "ADMIN") {
       throw new Error("无权删除该回复");
     }
 
-    await prisma.forumReply.delete({ where: { id: replyId } });
+    // Soft-delete when any reply has this as parent OR @-mentions it,
+    // so sub-reply context and @-mention anchors remain valid
+    if (childCount > 0 || mentionCount > 0) {
+      await prisma.forumReply.update({ where: { id: replyId }, data: { isDeleted: true } });
+    } else {
+      await prisma.forumReply.delete({ where: { id: replyId } });
+    }
     revalidatePath(`/forum/${postId}`);
   } catch (error) {
     redirectWithError(`/forum/${postId}`, friendlyError(error, "回复删除失败,请稍后再试"));
