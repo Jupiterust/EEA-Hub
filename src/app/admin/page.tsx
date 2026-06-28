@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { approveUserAction, banUserAction, createInviteAction, revealAnonymousAuthorAction } from "@/lib/actions";
+import { approveUserAction, banUserAction, createInviteAction, dismissReportAction, resolveReportAction, revealAnonymousAuthorAction } from "@/lib/actions";
 import { canManageScope, requireLeader } from "@/lib/authz";
 import { FeedbackBanner } from "@/components/feedback-banner";
 import { SubmitButton } from "@/components/submit-button";
@@ -19,6 +19,7 @@ export default async function AdminPage({
     prisma.user.findMany({ orderBy: { createdAt: "desc" }, take: 80 }),
     prisma.inviteCode.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
     prisma.report.findMany({
+      where: { status: "OPEN" },
       include: {
         reporter: { select: { realName: true } },
         post: { include: { author: { select: { realName: true, username: true } } } },
@@ -101,7 +102,12 @@ export default async function AdminPage({
       </section>
 
       <section className="mt-6 rounded-lg border border-border bg-surface p-5 ">
-        <h2 className="text-xl font-black text-text-primary">举报队列</h2>
+        <div className="flex items-center gap-3">
+          <h2 className="text-xl font-black text-text-primary">举报队列</h2>
+          {reports.length > 0 ? (
+            <Badge tone="red">待处理 {reports.length}</Badge>
+          ) : null}
+        </div>
         <div className="mt-4 grid gap-3">
           {reports.map((report) => {
             const target = report.post ?? report.reply;
@@ -109,18 +115,31 @@ export default async function AdminPage({
             return (
               <div key={report.id} className="rounded-md border border-border p-4 text-sm">
                 <p className="font-semibold text-text-primary">举报人：{report.reporter.realName} · {report.reason}</p>
+                <p className="mt-1 text-text-secondary">{report.createdAt.toLocaleString("zh-CN")}</p>
                 <p className="mt-2 text-text-secondary">内容：{target?.content.slice(0, 160)}</p>
-                {user.role === "ADMIN" && report.post?.isAnonymous ? (
-                  <form action={revealAnonymousAuthorAction} className="mt-3 flex gap-2">
-                    <input type="hidden" name="postId" value={report.post.id} />
-                    <input name="reason" value={`处理举报 ${report.id}`} readOnly className={inputClass} />
-                    <SubmitButton variant="secondary" pendingText="记录中...">记录追溯：{author?.realName}</SubmitButton>
-                  </form>
+                {user.role === "ADMIN" ? (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    {report.post?.isAnonymous ? (
+                      <form action={revealAnonymousAuthorAction}>
+                        <input type="hidden" name="postId" value={report.post.id} />
+                        <input name="reason" value={`处理举报 ${report.id}`} readOnly className="sr-only" />
+                        <SubmitButton variant="secondary" pendingText="记录中...">追溯匿名：{author?.realName}</SubmitButton>
+                      </form>
+                    ) : null}
+                    <form action={resolveReportAction}>
+                      <input type="hidden" name="reportId" value={report.id} />
+                      <SubmitButton variant="secondary" pendingText="处理中...">标记已处理</SubmitButton>
+                    </form>
+                    <form action={dismissReportAction}>
+                      <input type="hidden" name="reportId" value={report.id} />
+                      <SubmitButton variant="secondary" pendingText="处理中...">驳回举报</SubmitButton>
+                    </form>
+                  </div>
                 ) : null}
               </div>
             );
           })}
-          {reports.length === 0 ? <p className="text-sm text-text-secondary">暂无举报。</p> : null}
+          {reports.length === 0 ? <p className="text-sm text-text-secondary">暂无待处理举报。</p> : null}
         </div>
       </section>
 

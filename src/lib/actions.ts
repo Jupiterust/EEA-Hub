@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { redirect } from "next/navigation";
-import { hash } from "bcryptjs";
+import { compare, hash } from "bcryptjs";
 import { AuthError } from "next-auth";
 import { Prisma } from "@prisma/client";
 import { z } from "zod";
@@ -164,6 +164,39 @@ export async function loginAction(formData: FormData) {
 
 export async function signOutAction() {
   await signOut({ redirectTo: "/" });
+}
+
+export async function changePasswordAction(formData: FormData) {
+  try {
+    const user = await requireUser();
+    const currentPassword = stringValue(formData, "currentPassword");
+    const newPassword = stringValue(formData, "newPassword");
+    const confirmPassword = stringValue(formData, "confirmPassword");
+    if (!currentPassword || !newPassword || !confirmPassword) {
+      throw new Error("请填写所有密码字段");
+    }
+    if (newPassword.length < 6) {
+      throw new Error("新密码至少需要 6 位");
+    }
+    if (newPassword !== confirmPassword) {
+      throw new Error("新密码与确认密码不一致");
+    }
+    const dbUser = await prisma.user.findUniqueOrThrow({
+      where: { id: user.id },
+      select: { passwordHash: true },
+    });
+    const ok = await compare(currentPassword, dbUser.passwordHash);
+    if (!ok) {
+      throw new Error("当前密码不正确");
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { passwordHash: await hash(newPassword, 12) },
+    });
+    redirectWithSuccess("/dashboard", "密码修改成功");
+  } catch (error) {
+    redirectWithError("/dashboard", friendlyError(error, "密码修改失败，请稍后再试"));
+  }
 }
 
 export async function createInviteAction(formData: FormData) {
@@ -508,6 +541,40 @@ export async function revealAnonymousAuthorAction(formData: FormData) {
     redirectWithSuccess("/admin", "匿名追溯已记录到审计日志");
   } catch (error) {
     redirectWithError("/admin", friendlyError(error, "匿名追溯记录失败,请稍后再试"));
+  }
+}
+
+export async function resolveReportAction(formData: FormData) {
+  try {
+    const user = await requireLeader();
+    if (user.role !== "ADMIN") {
+      throw new Error("仅管理员可处理举报");
+    }
+    await prisma.report.update({
+      where: { id: stringValue(formData, "reportId") },
+      data: { status: "RESOLVED" },
+    });
+    revalidatePath("/admin");
+    redirectWithSuccess("/admin", "举报已标记为已处理");
+  } catch (error) {
+    redirectWithError("/admin", friendlyError(error, "操作失败，请稍后再试"));
+  }
+}
+
+export async function dismissReportAction(formData: FormData) {
+  try {
+    const user = await requireLeader();
+    if (user.role !== "ADMIN") {
+      throw new Error("仅管理员可处理举报");
+    }
+    await prisma.report.update({
+      where: { id: stringValue(formData, "reportId") },
+      data: { status: "DISMISSED" },
+    });
+    revalidatePath("/admin");
+    redirectWithSuccess("/admin", "举报已驳回");
+  } catch (error) {
+    redirectWithError("/admin", friendlyError(error, "操作失败，请稍后再试"));
   }
 }
 

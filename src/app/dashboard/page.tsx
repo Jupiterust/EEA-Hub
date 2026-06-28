@@ -1,11 +1,12 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
-import { deleteDocAction, deleteDocCommentAction, deletePostAction, deleteReplyAction } from "@/lib/actions";
+import { changePasswordAction, deleteDocAction, deleteDocCommentAction, deletePostAction, deleteReplyAction } from "@/lib/actions";
 import { AvatarUpload } from "@/components/avatar-upload";
+import { SubmitButton } from "@/components/submit-button";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { NotificationsSection, type NotificationData } from "@/components/notification-bell";
-import { Badge, editLinkClass, deleteLinkClass } from "@/components/ui";
+import { Badge, editLinkClass, deleteLinkClass, inputClass } from "@/components/ui";
 import { divisionLabels, roleLabels, statusLabels, teamLabels } from "@/lib/labels";
 import { FeedbackBanner } from "@/components/feedback-banner";
 
@@ -165,6 +166,16 @@ export default async function DashboardPage({
       </section>
 
       <NotificationsSection initialNotifications={notifications} />
+
+      <section className="mt-6 rounded-lg border border-border bg-surface p-6">
+        <h2 className="text-xl font-black text-text-primary">修改密码</h2>
+        <form action={changePasswordAction} className="mt-4 grid gap-3 sm:max-w-sm">
+          <input type="password" name="currentPassword" placeholder="当前密码" required className={inputClass} />
+          <input type="password" name="newPassword" placeholder="新密码（至少 6 位）" required className={inputClass} />
+          <input type="password" name="confirmPassword" placeholder="确认新密码" required className={inputClass} />
+          <SubmitButton pendingText="修改中...">修改密码</SubmitButton>
+        </form>
+      </section>
 
       <section className="mt-6 grid gap-4 lg:grid-cols-3">
         {user.role === "MEMBER" ? (
