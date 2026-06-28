@@ -548,15 +548,25 @@ export async function submitAssignmentAction(formData: FormData) {
       throw new Error("请选择要提交的文件");
     }
     const uploaded = await uploadObject(file, `submissions/${assignmentId}/${user.id}`);
-    await prisma.submission.create({
-      data: {
-        assignmentId,
-        studentId: user.id,
-        fileUrl: uploaded.url,
-        fileName: file.name,
-        fileSize: file.size,
-        mimeType: file.type || "application/octet-stream",
-        isLate: new Date() > assignment.dueAt,
+    const submissionData = {
+      fileUrl: uploaded.url,
+      fileName: file.name,
+      fileSize: file.size,
+      mimeType: file.type || "application/octet-stream",
+      isLate: new Date() > assignment.dueAt,
+    };
+    await prisma.submission.upsert({
+      where: { studentId_assignmentId: { studentId: user.id, assignmentId } },
+      create: { assignmentId, studentId: user.id, ...submissionData },
+      update: {
+        ...submissionData,
+        // Reset review state when student resubmits
+        verdict: "UNREVIEWED",
+        feedback: null,
+        score: null,
+        reviewedAt: null,
+        reviewerId: null,
+        submittedAt: new Date(),
       },
     });
     revalidatePath(`/assignments/${assignmentId}`);

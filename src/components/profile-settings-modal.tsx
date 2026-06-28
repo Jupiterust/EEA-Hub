@@ -107,6 +107,7 @@ export function ProfileSettingsModal({
             <div className="overflow-y-auto p-5">
               {tab === "profile" ? (
                 <form action={updateProfileAction} className="grid gap-3">
+                  <p className="text-sm text-text-secondary">以下信息将在个人主页公开显示，请谨慎填写。</p>
                   <input name="realName" defaultValue={currentRealName} placeholder="真实姓名" required className={inputClass} />
                   <input name="email" type="email" defaultValue={currentEmail} placeholder="邮箱（选填）" className={inputClass} />
                   <input name="qq" defaultValue={currentQq} placeholder="QQ 号（选填）" className={inputClass} />

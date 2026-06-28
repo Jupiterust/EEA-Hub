@@ -242,7 +242,7 @@ model Submission {
   reviewedAt    DateTime?
   reviewerId    String?
 
-  @@index([assignmentId, studentId])
+  @@unique([studentId, assignmentId])
 }
 
 model Report {

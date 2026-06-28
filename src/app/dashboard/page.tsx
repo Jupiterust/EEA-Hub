@@ -38,22 +38,25 @@ export default async function DashboardPage({
         },
         select: { id: true, title: true },
       });
-      for (const assignment of dueSoon) {
-        const exists = await prisma.notification.findFirst({
-          where: { recipientId: user.id, type: "DEADLINE", relatedId: assignment.id },
-          select: { id: true },
+      if (dueSoon.length > 0) {
+        const assignmentIds = dueSoon.map((a) => a.id);
+        const existing = await prisma.notification.findMany({
+          where: { recipientId: user.id, type: "DEADLINE", relatedId: { in: assignmentIds } },
+          select: { relatedId: true },
         });
-        if (!exists) {
-          await prisma.notification.create({
-            data: {
+        const notifiedIds = new Set(existing.map((n) => n.relatedId));
+        const toNotify = dueSoon.filter((a) => !notifiedIds.has(a.id));
+        if (toNotify.length > 0) {
+          await prisma.notification.createMany({
+            data: toNotify.map((a) => ({
               recipientId: user.id,
-              type: "DEADLINE",
-              message: `作业《${assignment.title}》将在 24 小时内截止，请尽快提交`,
-              linkUrl: `/assignments/${assignment.id}`,
-              relatedId: assignment.id,
+              type: "DEADLINE" as const,
+              message: `作业《${a.title}》将在 24 小时内截止，请尽快提交`,
+              linkUrl: `/assignments/${a.id}`,
+              relatedId: a.id,
               isRead: false,
               count: 1,
-            },
+            })),
           });
         }
       }
