@@ -421,6 +421,9 @@ export async function submitAssignmentAction(formData: FormData) {
   try {
     const user = await requireUser();
     const assignment = await prisma.assignment.findUniqueOrThrow({ where: { id: assignmentId } });
+    if (assignment.status === "CLOSED") {
+      throw new Error("作业已关闭，无法提交");
+    }
     const file = formData.get("file");
     if (!(file instanceof File) || file.size === 0) {
       throw new Error("请选择要提交的文件");
@@ -460,16 +463,25 @@ export async function reviewSubmissionAction(formData: FormData) {
     if (score !== null && !Number.isFinite(score)) {
       throw new Error("分数必须是数字");
     }
+    const verdict = z.enum(["UNREVIEWED", "PASS", "FAIL"]).parse(stringValue(formData, "verdict"));
+    const feedback = stringValue(formData, "feedback");
     await prisma.submission.update({
       where: { id: submission.id },
-      data: {
-        verdict: z.enum(["UNREVIEWED", "PASS", "FAIL"]).parse(stringValue(formData, "verdict")),
-        score,
-        feedback: stringValue(formData, "feedback"),
-        reviewedAt: new Date(),
-        reviewerId: user.id,
-      },
+      data: { verdict, score, feedback, reviewedAt: new Date(), reviewerId: user.id },
     });
+    if (verdict !== "UNREVIEWED") {
+      const resultText = verdict === "PASS" ? "通过" : "需修改";
+      const message = feedback
+        ? `你提交的作业《${submission.assignment.title}》已批改，结果：${resultText}。反馈：${feedback}`
+        : `你提交的作业《${submission.assignment.title}》已批改，结果：${resultText}`;
+      await createNotification({
+        recipientId: submission.studentId,
+        type: "COMMENT",
+        message,
+        linkUrl: `/assignments/${submission.assignmentId}`,
+        relatedId: submission.id,
+      });
+    }
     revalidatePath(`/assignments/${submission.assignmentId}`);
     redirectWithSuccess(returnTo, "批改结果已保存");
   } catch (error) {
@@ -817,7 +829,7 @@ export async function unacceptReplyAction(formData: FormData) {
     if (post.authorId !== user.id) throw new Error("只有楼主才能操作最佳答案");
     await prisma.$transaction([
       prisma.forumReply.update({ where: { id: replyId }, data: { isAccepted: false } }),
-      prisma.forumPost.update({ where: { id: postId }, data: { solutionReplyId: null } }),
+      prisma.forumPost.update({ where: { id: postId }, data: { solutionReplyId: null, isSolved: false } }),
     ]);
     revalidatePath(`/forum/${postId}`);
     revalidatePath("/forum");
