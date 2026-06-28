@@ -63,6 +63,7 @@ enum NotificationType {
   COMMENT
   DEADLINE
   FOLLOW
+  MENTION
 }
 
 model User {

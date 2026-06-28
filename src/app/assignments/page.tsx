@@ -3,38 +3,60 @@ import { Plus, Search } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
 import { HighlightText } from "@/components/highlight-text";
+import { Pagination } from "@/components/pagination";
 import { Badge, secondaryButtonClass } from "@/components/ui";
 import { divisionLabels, teamLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 
+const PAGE_SIZE = 10;
+
 export default async function AssignmentsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; status?: string }>;
+  searchParams: Promise<{ q?: string; status?: string; page?: string }>;
 }) {
   const [user, params] = await Promise.all([requireUser(), searchParams]);
   const q = params.q?.trim();
-  const status = params.status === "OPEN" || params.status === "CLOSED" ? params.status : undefined;
+  const status = params.status === "OPEN" || params.status === "CLOSED" ? (params.status as "OPEN" | "CLOSED") : undefined;
+  const page = Math.max(1, parseInt(params.page ?? "1", 10) || 1);
 
-  const assignments = await prisma.assignment.findMany({
-    where: {
-      ...(user.role === "ADMIN"
-        ? {}
-        : { division: user.division, OR: [{ team: "GENERAL" }, { team: user.team }] }),
-      ...(q ? { title: { contains: q, mode: "insensitive" } } : {}),
-      ...(status ? { status } : {}),
-    },
-    include: {
-      submissions: {
-        where: { studentId: user.id },
-        orderBy: { submittedAt: "desc" },
-        take: 1,
+  const where = {
+    ...(user.role === "ADMIN"
+      ? {}
+      : { division: user.division, OR: [{ team: "GENERAL" as const }, { team: user.team }] }),
+    ...(q ? { title: { contains: q, mode: "insensitive" as const } } : {}),
+    ...(status ? { status } : {}),
+  };
+
+  const [assignments, total] = await Promise.all([
+    prisma.assignment.findMany({
+      where,
+      include: {
+        submissions: {
+          where: { studentId: user.id },
+          orderBy: { submittedAt: "desc" },
+          take: 1,
+        },
+        _count: { select: { submissions: true } },
       },
-      _count: { select: { submissions: true } },
-    },
-    orderBy: { dueAt: "asc" },
-  });
+      orderBy: { dueAt: "asc" },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    }),
+    prisma.assignment.count({ where }),
+  ]);
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  function buildHref(p: number) {
+    const sp = new URLSearchParams();
+    if (q) sp.set("q", q);
+    if (status) sp.set("status", status);
+    if (p > 1) sp.set("page", String(p));
+    const qs = sp.toString();
+    return `/assignments${qs ? `?${qs}` : ""}`;
+  }
 
   return (
     <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
@@ -84,12 +106,20 @@ export default async function AssignmentsPage({
                 </Badge>
                 <Badge>{divisionLabels[assignment.division]}</Badge>
                 <Badge>{teamLabels[assignment.team]}</Badge>
-                {latest ? <Badge tone={latest.verdict === "PASS" ? "green" : latest.verdict === "FAIL" ? "red" : "amber"}>{latest.verdict === "UNREVIEWED" ? "已提交待批改" : latest.verdict}</Badge> : <Badge tone="amber">未提交</Badge>}
+                {latest ? (
+                  <Badge tone={latest.verdict === "PASS" ? "green" : latest.verdict === "FAIL" ? "red" : "amber"}>
+                    {latest.verdict === "UNREVIEWED" ? "已提交待批改" : latest.verdict}
+                  </Badge>
+                ) : (
+                  <Badge tone="amber">未提交</Badge>
+                )}
               </div>
               <h2 className="mt-3 text-xl font-black text-text-primary">
                 <HighlightText text={assignment.title} query={q} />
               </h2>
-              <p className="mt-2 text-sm text-text-secondary">截止：{assignment.dueAt.toLocaleString("zh-CN")} · 提交记录 {assignment._count.submissions}</p>
+              <p className="mt-2 text-sm text-text-secondary">
+                截止：{assignment.dueAt.toLocaleString("zh-CN")} · 提交记录 {assignment._count.submissions}
+              </p>
             </Link>
           );
         })}
@@ -99,6 +129,8 @@ export default async function AssignmentsPage({
           </div>
         )}
       </section>
+
+      <Pagination page={page} totalPages={totalPages} buildHref={buildHref} />
     </div>
   );
 }

@@ -4,54 +4,82 @@ import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { DocTree } from "@/components/doc-tree";
 import { HighlightText } from "@/components/highlight-text";
+import { Pagination } from "@/components/pagination";
 import { Badge, secondaryButtonClass } from "@/components/ui";
 import { divisionLabels, teamLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 
+const PAGE_SIZE = 10;
+
 export default async function DocsPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; author?: string; division?: string }>;
+  searchParams: Promise<{ q?: string; author?: string; division?: string; page?: string }>;
 }) {
   const session = await auth();
   const params = await searchParams;
   const q = params.q?.trim();
   const author = params.author?.trim();
+  const page = Math.max(1, parseInt(params.page ?? "1", 10) || 1);
 
-  const [docs, allDocs] = await Promise.all([
+  const where = {
+    published: true,
+    ...(q
+      ? {
+          OR: [
+            { title: { contains: q, mode: "insensitive" as const } },
+            { content: { contains: q, mode: "insensitive" as const } },
+          ],
+        }
+      : {}),
+    ...(author
+      ? {
+          author: {
+            OR: [
+              { realName: { contains: author, mode: "insensitive" as const } },
+              { username: { contains: author, mode: "insensitive" as const } },
+            ],
+          },
+        }
+      : {}),
+    ...(params.division ? { division: params.division as never } : {}),
+  };
+
+  const orderBy = [
+    { division: "asc" as const },
+    { team: "asc" as const },
+    { order: "asc" as const },
+    { updatedAt: "desc" as const },
+  ];
+
+  const [docs, total, allDocs] = await Promise.all([
     prisma.techDoc.findMany({
-      where: {
-        published: true,
-        ...(q
-          ? {
-              OR: [
-                { title: { contains: q, mode: "insensitive" } },
-                { content: { contains: q, mode: "insensitive" } },
-              ],
-            }
-          : {}),
-        ...(author
-          ? {
-              author: {
-                OR: [
-                  { realName: { contains: author, mode: "insensitive" } },
-                  { username: { contains: author, mode: "insensitive" } },
-                ],
-              },
-            }
-          : {}),
-        ...(params.division ? { division: params.division as never } : {}),
-      },
-      orderBy: [{ division: "asc" }, { team: "asc" }, { order: "asc" }, { updatedAt: "desc" }],
+      where,
+      orderBy,
       include: { _count: { select: { docLikes: true } } },
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
     }),
+    prisma.techDoc.count({ where }),
     prisma.techDoc.findMany({
       where: { published: true },
       select: { slug: true, title: true, division: true, team: true, path: true },
       orderBy: [{ division: "asc" }, { team: "asc" }, { order: "asc" }],
     }),
   ]);
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  function buildHref(p: number) {
+    const sp = new URLSearchParams();
+    if (q) sp.set("q", q);
+    if (author) sp.set("author", author);
+    if (params.division) sp.set("division", params.division);
+    if (p > 1) sp.set("page", String(p));
+    const qs = sp.toString();
+    return `/docs${qs ? `?${qs}` : ""}`;
+  }
 
   return (
     <div className="mx-auto max-w-[1500px] px-4 py-8 sm:px-6">
@@ -103,37 +131,41 @@ export default async function DocsPage({
         </aside>
 
         {/* Main content */}
-        <section className="grid auto-rows-min gap-3">
-          {docs.map((doc) => (
-            <Link
-              key={doc.id}
-              href={`/docs/${doc.slug}`}
-              className="rounded-lg border border-border bg-surface p-5 transition hover:border-primary/40"
-            >
-              <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={doc.division === "GENERAL" ? "blue" : "slate"}>
-                  {divisionLabels[doc.division]}
-                </Badge>
-                <Badge>{teamLabels[doc.team]}</Badge>
+        <section>
+          <div className="grid auto-rows-min gap-3">
+            {docs.map((doc) => (
+              <Link
+                key={doc.id}
+                href={`/docs/${doc.slug}`}
+                className="rounded-lg border border-border bg-surface p-5 transition hover:border-primary/40"
+              >
+                <div className="flex flex-wrap items-center gap-2">
+                  <Badge tone={doc.division === "GENERAL" ? "blue" : "slate"}>
+                    {divisionLabels[doc.division]}
+                  </Badge>
+                  <Badge>{teamLabels[doc.team]}</Badge>
+                </div>
+                <h2 className="mt-3 text-xl font-black text-text-primary">
+                  <HighlightText text={doc.title} query={q} />
+                </h2>
+                <p className="mt-1 text-sm text-text-secondary">{doc.path}</p>
+                {doc.excerpt ? (
+                  <p className="mt-3 line-clamp-2 leading-7 text-text-secondary">{doc.excerpt}</p>
+                ) : null}
+                <div className="mt-3 flex items-center gap-1 text-sm text-text-secondary">
+                  <ThumbsUp className="size-4" />
+                  <span>{doc._count.docLikes}</span>
+                </div>
+              </Link>
+            ))}
+            {docs.length === 0 ? (
+              <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center text-text-secondary">
+                暂无匹配文档。
               </div>
-              <h2 className="mt-3 text-xl font-black text-text-primary">
-                <HighlightText text={doc.title} query={q} />
-              </h2>
-              <p className="mt-1 text-sm text-text-secondary">{doc.path}</p>
-              {doc.excerpt ? (
-                <p className="mt-3 line-clamp-2 leading-7 text-text-secondary">{doc.excerpt}</p>
-              ) : null}
-              <div className="mt-3 flex items-center gap-1 text-sm text-text-secondary">
-                <ThumbsUp className="size-4" />
-                <span>{doc._count.docLikes}</span>
-              </div>
-            </Link>
-          ))}
-          {docs.length === 0 ? (
-            <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center text-text-secondary">
-              暂无匹配文档。
-            </div>
-          ) : null}
+            ) : null}
+          </div>
+
+          <Pagination page={page} totalPages={totalPages} buildHref={buildHref} />
         </section>
       </div>
     </div>

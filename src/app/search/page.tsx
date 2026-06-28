@@ -2,9 +2,12 @@ import Link from "next/link";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { HighlightText } from "@/components/highlight-text";
+import { Pagination } from "@/components/pagination";
 import { Badge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
+
+const PAGE_SIZE = 10;
 
 const authorWhere = (author: string) => ({
   OR: [
@@ -13,68 +16,69 @@ const authorWhere = (author: string) => ({
   ],
 });
 
+type ResultItem = { type: "文档" | "帖子" | "作业"; title: string; href: string };
+
 export default async function SearchPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; author?: string }>;
+  searchParams: Promise<{ q?: string; author?: string; page?: string }>;
 }) {
   const [params, session] = await Promise.all([searchParams, auth()]);
   const q = params.q?.trim() ?? "";
   const author = params.author?.trim() ?? "";
+  const page = Math.max(1, parseInt(params.page ?? "1", 10) || 1);
 
-  const [docs, posts, assignments] =
-    q || author
-      ? await Promise.all([
-          prisma.techDoc.findMany({
-            where: {
-              ...(q
-                ? {
-                    OR: [
-                      { title: { contains: q, mode: "insensitive" } },
-                      { content: { contains: q, mode: "insensitive" } },
-                    ],
-                  }
-                : {}),
-              ...(author ? { author: authorWhere(author) } : {}),
-            },
-            take: 10,
-          }),
-          prisma.forumPost.findMany({
-            where: {
-              ...(author ? { isAnonymous: false } : {}),
-              ...(q
-                ? {
-                    OR: [
-                      { title: { contains: q, mode: "insensitive" } },
-                      { content: { contains: q, mode: "insensitive" } },
-                      { tags: { has: q } },
-                    ],
-                  }
-                : {}),
-              ...(author ? { author: authorWhere(author) } : {}),
-            },
-            take: 10,
-          }),
-          q && session?.user
-            ? prisma.assignment.findMany({
-                where: {
-                  title: { contains: q, mode: "insensitive" },
-                  ...(session.user.role !== "ADMIN"
-                    ? { division: session.user.division, OR: [{ team: "GENERAL" }, { team: session.user.team }] }
-                    : {}),
-                },
-                select: { id: true, title: true },
-                take: 10,
-              })
-            : Promise.resolve([]),
-        ])
-      : [[], [], []];
+  let allResults: ResultItem[] = [];
 
-  const results = [
-    ...docs.map((doc) => ({ type: "文档" as const, title: doc.title, href: `/docs/${doc.slug}` })),
-    ...posts.map((post) => ({ type: "帖子" as const, title: post.title, href: `/forum/${post.id}` })),
-    ...assignments.map((a) => ({ type: "作业" as const, title: a.title, href: `/assignments/${a.id}` })),
-  ];
+  if (q || author) {
+    const [docs, posts, assignments] = await Promise.all([
+      prisma.techDoc.findMany({
+        where: {
+          ...(q ? { OR: [{ title: { contains: q, mode: "insensitive" } }, { content: { contains: q, mode: "insensitive" } }] } : {}),
+          ...(author ? { author: authorWhere(author) } : {}),
+        },
+        select: { title: true, slug: true },
+      }),
+      prisma.forumPost.findMany({
+        where: {
+          ...(author ? { isAnonymous: false } : {}),
+          ...(q ? { OR: [{ title: { contains: q, mode: "insensitive" } }, { content: { contains: q, mode: "insensitive" } }, { tags: { has: q } }] } : {}),
+          ...(author ? { author: authorWhere(author) } : {}),
+        },
+        select: { id: true, title: true },
+      }),
+      q && session?.user
+        ? prisma.assignment.findMany({
+            where: {
+              title: { contains: q, mode: "insensitive" },
+              ...(session.user.role !== "ADMIN"
+                ? { division: session.user.division, OR: [{ team: "GENERAL" }, { team: session.user.team }] }
+                : {}),
+            },
+            select: { id: true, title: true },
+          })
+        : Promise.resolve([]),
+    ]);
+
+    allResults = [
+      ...docs.map((doc) => ({ type: "文档" as const, title: doc.title, href: `/docs/${doc.slug}` })),
+      ...posts.map((post) => ({ type: "帖子" as const, title: post.title, href: `/forum/${post.id}` })),
+      ...assignments.map((a) => ({ type: "作业" as const, title: a.title, href: `/assignments/${a.id}` })),
+    ];
+  }
+
+  const total = allResults.length;
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+  const results = allResults.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
+
+  function buildHref(p: number) {
+    const sp = new URLSearchParams();
+    if (q) sp.set("q", q);
+    if (author) sp.set("author", author);
+    if (p > 1) sp.set("page", String(p));
+    const qs = sp.toString();
+    return `/search${qs ? `?${qs}` : ""}`;
+  }
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
@@ -94,7 +98,12 @@ export default async function SearchPage({
         />
         <button className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-bg">搜索</button>
       </form>
-      <section className="mt-6 grid gap-4">
+
+      {(q || author) && total > 0 && (
+        <p className="mt-4 text-sm text-text-secondary">共 {total} 条结果</p>
+      )}
+
+      <section className="mt-4 grid gap-4">
         {results.map((item) => (
           <Link key={`${item.type}-${item.href}`} href={item.href} className="rounded-lg border border-border bg-surface p-4">
             <Badge tone={item.type === "文档" ? "blue" : item.type === "帖子" ? "amber" : "green"}>{item.type}</Badge>
@@ -109,6 +118,8 @@ export default async function SearchPage({
           </div>
         )}
       </section>
+
+      <Pagination page={page} totalPages={totalPages} buildHref={buildHref} />
     </div>
   );
 }

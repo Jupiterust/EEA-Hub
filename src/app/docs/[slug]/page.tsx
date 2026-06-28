@@ -200,6 +200,11 @@ export default async function DocDetailPage({
                     编辑文档
                   </Link>
                 )}
+                {(isAuthor || canDelete) && (
+                  <Link href={`/docs/${slug}/history`} className={cn(editButtonClass, "text-xs px-3")}>
+                    历史版本
+                  </Link>
+                )}
                 {canDelete && (
                   <ConfirmDelete
                     action={deleteDocAction}

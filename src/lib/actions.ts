@@ -10,6 +10,7 @@ import { signIn, signOut, auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { canManageScope, requireLeader, requireUser } from "@/lib/authz";
 import { uploadImageObject, uploadObject } from "@/lib/storage";
+import { extractMentionUsernames, buildMentionMap } from "@/lib/mentions";
 
 const divisionEnum = z.enum(["SOFTWARE", "ANALOG", "GENERAL"]);
 const teamEnum = z.enum(["CONTROL", "VISION", "FPGA", "HARDWARE", "GENERAL"]);
@@ -382,6 +383,14 @@ export async function createPostAction(formData: FormData) {
         )
       );
     }
+    await notifyMentions(post.title + "\n" + stringValue(formData, "content"), {
+      senderId: user.id,
+      senderName: user.name ?? "",
+      isAnonymous,
+      linkUrl: `/forum/${post.id}`,
+      relatedId: post.id,
+      contextLabel: "帖子",
+    });
     revalidatePath("/forum");
     redirect("/forum");
   } catch (error) {
@@ -448,6 +457,15 @@ export async function replyAction(formData: FormData) {
         relatedId: postId,
       });
     }
+
+    await notifyMentions(content, {
+      senderId: user.id,
+      senderName: user.name ?? "",
+      isAnonymous,
+      linkUrl: `/forum/${postId}`,
+      relatedId: postId,
+      contextLabel: "回复",
+    });
 
     revalidatePath(`/forum/${postId}`);
     redirectWithSuccess(returnTo, "回复已发布");
@@ -686,6 +704,48 @@ function slugify(value: string) {
     .slice(0, 80);
 }
 
+/** Send MENTION notifications for every @username found in content */
+async function notifyMentions(
+  content: string,
+  {
+    senderId,
+    senderName,
+    isAnonymous,
+    linkUrl,
+    relatedId,
+    contextLabel,
+  }: {
+    senderId: string;
+    senderName: string;
+    isAnonymous: boolean;
+    linkUrl: string;
+    relatedId: string;
+    contextLabel: string; // e.g. "帖子" | "回复" | "评论"
+  }
+) {
+  try {
+    const usernames = extractMentionUsernames(content);
+    if (usernames.length === 0) return;
+    const mentionMap = await buildMentionMap(usernames);
+    const actor = isAnonymous ? "有人" : senderName;
+    await Promise.all(
+      [...mentionMap.values()]
+        .filter((u) => u.id !== senderId)
+        .map((u) =>
+          createNotification({
+            recipientId: u.id,
+            type: "MENTION",
+            message: `${actor}在${contextLabel}中@了你`,
+            linkUrl,
+            relatedId,
+          })
+        )
+    );
+  } catch {
+    // mention notification failure must never break the main action
+  }
+}
+
 async function uniqueDocSlug(value: string) {
   const base = slugify(value) || `doc-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 6)}`;
   let candidate = base;
@@ -717,7 +777,7 @@ async function uploadForumImages(formData: FormData, prefix: string) {
 
 async function createNotification(data: {
   recipientId: string;
-  type: "REPLY" | "ACCEPT" | "LIKE" | "COMMENT" | "DEADLINE" | "FOLLOW";
+  type: "REPLY" | "ACCEPT" | "LIKE" | "COMMENT" | "DEADLINE" | "FOLLOW" | "MENTION";
   message: string;
   linkUrl: string;
   relatedId: string;
@@ -782,19 +842,31 @@ export async function updateDocAction(formData: FormData) {
     const title = stringValue(formData, "title");
     if (!title) throw new Error("请填写文档标题");
 
-    await prisma.techDoc.update({
-      where: { id: docId },
-      data: {
-        title,
-        path: stringValue(formData, "path") || title,
-        excerpt: stringValue(formData, "excerpt"),
-        content: stringValue(formData, "content"),
-        division,
-        team,
-      },
-    });
+    await prisma.$transaction([
+      // Save version snapshot of the CURRENT content before overwriting
+      prisma.docVersion.create({
+        data: {
+          docId,
+          title: doc.title,
+          content: doc.content,
+          editorId: user.id,
+        },
+      }),
+      prisma.techDoc.update({
+        where: { id: docId },
+        data: {
+          title,
+          path: stringValue(formData, "path") || title,
+          excerpt: stringValue(formData, "excerpt"),
+          content: stringValue(formData, "content"),
+          division,
+          team,
+        },
+      }),
+    ]);
 
     revalidatePath(`/docs/${slug}`);
+    revalidatePath(`/docs/${slug}/history`);
     revalidatePath("/docs");
   } catch (error) {
     redirectWithError(slug ? `/docs/${slug}/edit` : "/docs", friendlyError(error, "文档更新失败,请稍后再试"));
@@ -1163,6 +1235,15 @@ export async function createDocCommentAction(formData: FormData) {
         relatedId: docId,
       });
     }
+
+    await notifyMentions(content, {
+      senderId: user.id,
+      senderName: user.name ?? "",
+      isAnonymous,
+      linkUrl: `/docs/${slug}`,
+      relatedId: docId,
+      contextLabel: "评论",
+    });
 
     revalidatePath(`/docs/${slug}`);
   } catch (error) {

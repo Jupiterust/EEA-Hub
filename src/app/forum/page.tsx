@@ -3,10 +3,13 @@ import { MessageSquare, Plus, Search, ThumbsUp } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { Avatar } from "@/components/avatar";
 import { HighlightText } from "@/components/highlight-text";
+import { Pagination } from "@/components/pagination";
 import { Badge, cn, secondaryButtonClass } from "@/components/ui";
 import { divisionLabels, teamLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
+
+const PAGE_SIZE = 10;
 
 const sortOptions = [
   { value: "latest", label: "最新发布" },
@@ -19,12 +22,13 @@ type SortValue = (typeof sortOptions)[number]["value"];
 export default async function ForumPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; author?: string; sort?: string }>;
+  searchParams: Promise<{ q?: string; author?: string; sort?: string; page?: string }>;
 }) {
   const params = await searchParams;
   const q = params.q?.trim();
   const author = params.author?.trim();
   const sort: SortValue = (params.sort as SortValue) ?? "latest";
+  const page = Math.max(1, parseInt(params.page ?? "1", 10) || 1);
 
   const orderBy =
     sort === "replies"
@@ -33,36 +37,52 @@ export default async function ForumPage({
         ? { postLikes: { _count: "desc" as const } }
         : { createdAt: "desc" as const };
 
-  const posts = await prisma.forumPost.findMany({
-    where: {
-      // When filtering by author, exclude anonymous posts to protect anonymity
-      ...(author ? { isAnonymous: false } : {}),
-      ...(q
-        ? {
+  const where = {
+    ...(author ? { isAnonymous: false } : {}),
+    ...(q
+      ? {
+          OR: [
+            { title: { contains: q, mode: "insensitive" as const } },
+            { content: { contains: q, mode: "insensitive" as const } },
+            { tags: { has: q } },
+          ],
+        }
+      : {}),
+    ...(author
+      ? {
+          author: {
             OR: [
-              { title: { contains: q, mode: "insensitive" } },
-              { content: { contains: q, mode: "insensitive" } },
-              { tags: { has: q } },
+              { realName: { contains: author, mode: "insensitive" as const } },
+              { username: { contains: author, mode: "insensitive" as const } },
             ],
-          }
-        : {}),
-      ...(author
-        ? {
-            author: {
-              OR: [
-                { realName: { contains: author, mode: "insensitive" } },
-                { username: { contains: author, mode: "insensitive" } },
-              ],
-            },
-          }
-        : {}),
-    },
-    include: {
-      author: { select: { realName: true, username: true, avatarUrl: true } },
-      _count: { select: { replies: true, postLikes: true } },
-    },
-    orderBy,
-  });
+          },
+        }
+      : {}),
+  };
+
+  const [posts, total] = await Promise.all([
+    prisma.forumPost.findMany({
+      where,
+      include: {
+        author: { select: { realName: true, username: true, avatarUrl: true } },
+        _count: { select: { replies: true, postLikes: true } },
+      },
+      orderBy,
+      skip: (page - 1) * PAGE_SIZE,
+      take: PAGE_SIZE,
+    }),
+    prisma.forumPost.count({ where }),
+  ]);
+
+  const totalPages = Math.ceil(total / PAGE_SIZE);
+
+  function buildHref(p: number) {
+    const sp = new URLSearchParams({ sort });
+    if (q) sp.set("q", q);
+    if (author) sp.set("author", author);
+    if (p > 1) sp.set("page", String(p));
+    return `/forum?${sp.toString()}`;
+  }
 
   const sortHref = (s: string) => {
     const p = new URLSearchParams({ sort: s });
@@ -157,6 +177,8 @@ export default async function ForumPage({
           </div>
         )}
       </section>
+
+      <Pagination page={page} totalPages={totalPages} buildHref={buildHref} />
     </div>
   );
 }
