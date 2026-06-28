@@ -168,6 +168,8 @@ model ForumPost {
   isAnonymous    Boolean    @default(false)
   isSolved       Boolean    @default(false)
   solutionReplyId String?
+  isPinned       Boolean    @default(false)
+  pinnedAt       DateTime?
   createdAt      DateTime   @default(now())
   updatedAt      DateTime   @updatedAt
   authorId       String

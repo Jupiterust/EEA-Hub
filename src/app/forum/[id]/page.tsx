@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { CheckCircle, ThumbsUp } from "lucide-react";
 import { Avatar } from "@/components/avatar";
 import { prisma } from "@/lib/prisma";
-import { acceptReplyAction, deletePostAction, deleteReplyAction, replyAction, reportAction, togglePostLikeAction, toggleReplyLikeAction, toggleSolvedAction, unacceptReplyAction, updateReplyAction } from "@/lib/actions";
+import { acceptReplyAction, deletePostAction, deleteReplyAction, replyAction, reportAction, togglePinAction, togglePostLikeAction, toggleReplyLikeAction, toggleSolvedAction, unacceptReplyAction, updateReplyAction } from "@/lib/actions";
 import { requireUser } from "@/lib/authz";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { FeedbackBanner } from "@/components/feedback-banner";
@@ -163,6 +163,15 @@ export default async function ForumDetailPage({
               <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
               <SubmitButton variant="secondary" pendingText="..." className="px-3 py-1.5 text-xs">
                 {post.isSolved ? "取消已解决" : "标记已解决"}
+              </SubmitButton>
+            </form>
+          )}
+          {user.role !== "MEMBER" && (
+            <form action={togglePinAction}>
+              <input type="hidden" name="postId" value={post.id} />
+              <input type="hidden" name="returnTo" value={`/forum/${post.id}`} />
+              <SubmitButton variant="secondary" pendingText="..." className="px-3 py-1.5 text-xs">
+                {post.isPinned ? "取消置顶" : "📌 置顶"}
               </SubmitButton>
             </form>
           )}

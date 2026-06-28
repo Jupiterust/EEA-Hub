@@ -1423,3 +1423,33 @@ export async function toggleFollowAction(followingId: string) {
     // follow toggle failure is non-critical; swallow silently
   }
 }
+
+export async function togglePinAction(formData: FormData) {
+  const postId = stringValue(formData, "postId");
+  const returnTo = safeReturnTo(formData, postId ? `/forum/${postId}` : "/forum");
+  try {
+    await requireLeader();
+    const post = await prisma.forumPost.findUniqueOrThrow({
+      where: { id: postId },
+      select: { isPinned: true },
+    });
+    if (post.isPinned) {
+      await prisma.forumPost.update({
+        where: { id: postId },
+        data: { isPinned: false, pinnedAt: null },
+      });
+    } else {
+      const pinnedCount = await prisma.forumPost.count({ where: { isPinned: true } });
+      if (pinnedCount >= 5) throw new Error("最多只能置顶 5 条帖子");
+      await prisma.forumPost.update({
+        where: { id: postId },
+        data: { isPinned: true, pinnedAt: new Date() },
+      });
+    }
+    revalidatePath("/forum");
+    revalidatePath(`/forum/${postId}`);
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "置顶操作失败，请稍后重试"));
+  }
+  redirect(returnTo);
+}

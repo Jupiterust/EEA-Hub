@@ -1,9 +1,12 @@
 import Link from "next/link";
 import { MessageSquare, Plus, Search, ThumbsUp } from "lucide-react";
+import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { togglePinAction } from "@/lib/actions";
 import { Avatar } from "@/components/avatar";
 import { HighlightText } from "@/components/highlight-text";
 import { Pagination } from "@/components/pagination";
+import { SubmitButton } from "@/components/submit-button";
 import { Badge, cn, secondaryButtonClass } from "@/components/ui";
 import { divisionLabels, teamLabels } from "@/lib/labels";
 
@@ -24,11 +27,13 @@ export default async function ForumPage({
 }: {
   searchParams: Promise<{ q?: string; author?: string; sort?: string; page?: string }>;
 }) {
-  const params = await searchParams;
+  const [params, session] = await Promise.all([searchParams, auth()]);
   const q = params.q?.trim();
   const author = params.author?.trim();
   const sort: SortValue = (params.sort as SortValue) ?? "latest";
   const page = Math.max(1, parseInt(params.page ?? "1", 10) || 1);
+  const userRole = session?.user?.role;
+  const canPin = userRole === "LEADER" || userRole === "ADMIN";
 
   const orderBy =
     sort === "replies"
@@ -37,7 +42,7 @@ export default async function ForumPage({
         ? { postLikes: { _count: "desc" as const } }
         : { createdAt: "desc" as const };
 
-  const where = {
+  const baseWhere = {
     ...(author ? { isAnonymous: false } : {}),
     ...(q
       ? {
@@ -60,18 +65,25 @@ export default async function ForumPage({
       : {}),
   };
 
-  const [posts, total] = await Promise.all([
+  const postInclude = {
+    author: { select: { realName: true, username: true, avatarUrl: true } },
+    _count: { select: { replies: true, postLikes: true } },
+  } as const;
+
+  const [pinnedPosts, posts, total] = await Promise.all([
     prisma.forumPost.findMany({
-      where,
-      include: {
-        author: { select: { realName: true, username: true, avatarUrl: true } },
-        _count: { select: { replies: true, postLikes: true } },
-      },
+      where: { ...baseWhere, isPinned: true },
+      include: postInclude,
+      orderBy: { pinnedAt: "desc" },
+    }),
+    prisma.forumPost.findMany({
+      where: { ...baseWhere, isPinned: false },
+      include: postInclude,
       orderBy,
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
-    prisma.forumPost.count({ where }),
+    prisma.forumPost.count({ where: { ...baseWhere, isPinned: false } }),
   ]);
 
   const totalPages = Math.ceil(total / PAGE_SIZE);
@@ -139,6 +151,62 @@ export default async function ForumPage({
       </div>
 
       <section className="mt-4 grid gap-3">
+        {pinnedPosts.map((post) => (
+          <div
+            key={post.id}
+            className="relative rounded-lg border border-border bg-surface p-5 transition hover:border-primary/40 [border-left-width:3px] [border-left-color:color-mix(in_srgb,#C4AC60_60%,transparent)]"
+          >
+            <Link href={`/forum/${post.id}`} className="absolute inset-0 z-0" aria-label={post.title} />
+            <div className="flex flex-wrap items-center gap-2">
+              <span className="relative z-10 inline-flex items-center gap-1 rounded border border-[#C4AC60]/30 bg-[#C4AC60]/10 px-1.5 py-0.5 text-xs font-bold text-[#C4AC60]">
+                📌 置顶
+              </span>
+              <Badge tone={post.isSolved ? "green" : "amber"}>{post.isSolved ? "已解决" : "讨论中"}</Badge>
+              <Badge>{divisionLabels[post.division]}</Badge>
+              <Badge>{teamLabels[post.team]}</Badge>
+              {post.tags.map((tag) => <Badge key={tag} tone="blue">{tag}</Badge>)}
+            </div>
+            <h2 className="mt-3 text-xl font-black text-text-primary">
+              <HighlightText text={post.title} query={q} />
+            </h2>
+            <p className="mt-2 line-clamp-2 text-sm leading-6 text-text-secondary">{post.content}</p>
+            <div className="mt-4 flex flex-wrap items-center gap-3 text-sm text-text-secondary">
+              <Avatar
+                url={post.isAnonymous ? null : post.author.avatarUrl}
+                anonymous={post.isAnonymous}
+                size="xs"
+                alt={post.isAnonymous ? "匿名" : post.author.realName}
+              />
+              {post.isAnonymous ? (
+                <span>匿名楼主</span>
+              ) : (
+                <Link href={`/profile/${post.authorId}`} className="relative z-10 hover:text-primary hover:underline">
+                  {post.author.realName}
+                </Link>
+              )}
+              <span className="inline-flex items-center gap-1"><MessageSquare className="size-4" /> {post._count.replies}</span>
+              <span className="inline-flex items-center gap-1"><ThumbsUp className="size-4" /> {post._count.postLikes}</span>
+              {canPin && (
+                <form action={togglePinAction} className="relative z-10 ml-auto">
+                  <input type="hidden" name="postId" value={post.id} />
+                  <input type="hidden" name="returnTo" value="/forum" />
+                  <SubmitButton variant="secondary" pendingText="..." className="px-2 py-1 text-xs">
+                    取消置顶
+                  </SubmitButton>
+                </form>
+              )}
+            </div>
+          </div>
+        ))}
+
+        {pinnedPosts.length > 0 && posts.length > 0 && (
+          <div className="flex items-center gap-2 py-1">
+            <div className="h-px flex-1 bg-border" />
+            <span className="text-xs text-text-secondary">其他帖子</span>
+            <div className="h-px flex-1 bg-border" />
+          </div>
+        )}
+
         {posts.map((post) => (
           <div key={post.id} className="relative rounded-lg border border-border bg-surface p-5 transition hover:border-primary/40">
             <Link href={`/forum/${post.id}`} className="absolute inset-0 z-0" aria-label={post.title} />
@@ -171,7 +239,8 @@ export default async function ForumPage({
             </div>
           </div>
         ))}
-        {posts.length === 0 && (
+
+        {pinnedPosts.length === 0 && posts.length === 0 && (
           <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center text-text-secondary">
             暂无匹配帖子。
           </div>
