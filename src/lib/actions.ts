@@ -310,7 +310,7 @@ export async function createDocAction(formData: FormData) {
       throw new Error("请填写文档标题");
     }
     slug = await uniqueDocSlug(stringValue(formData, "slug") || title);
-    await prisma.techDoc.create({
+    const doc = await prisma.techDoc.create({
       data: {
         title,
         slug,
@@ -322,6 +322,22 @@ export async function createDocAction(formData: FormData) {
         authorId: user.id,
       },
     });
+    // Notify followers of new doc
+    const docFollowers = await prisma.follow.findMany({
+      where: { followingId: user.id },
+      select: { followerId: true },
+    });
+    await Promise.all(
+      docFollowers.map((f) =>
+        createNotification({
+          recipientId: f.followerId,
+          type: "COMMENT",
+          message: `${user.name ?? "有用户"} 发布了新文档《${title}》`,
+          linkUrl: `/docs/${doc.slug}`,
+          relatedId: doc.id,
+        })
+      )
+    );
     revalidatePath("/docs");
   } catch (error) {
     redirectWithError("/docs/new", friendlyError(error, "文档发布失败,请稍后再试"));
@@ -333,19 +349,39 @@ export async function createDocAction(formData: FormData) {
 export async function createPostAction(formData: FormData) {
   try {
     const user = await requireUser();
+    const isAnonymous = boolValue(formData, "isAnonymous");
+    const title = stringValue(formData, "title");
     const imageUrls = await uploadForumImages(formData, `forum/posts/${user.id}`);
-    await prisma.forumPost.create({
+    const post = await prisma.forumPost.create({
       data: {
-        title: stringValue(formData, "title"),
+        title,
         content: stringValue(formData, "content"),
         division: divisionEnum.parse(stringValue(formData, "division") || "GENERAL"),
         team: teamEnum.parse(stringValue(formData, "team") || "GENERAL"),
         tags: stringValue(formData, "tags").split(/[,\s]+/).filter(Boolean).slice(0, 8),
         imageUrls,
-        isAnonymous: boolValue(formData, "isAnonymous"),
+        isAnonymous,
         authorId: user.id,
       },
     });
+    // Only notify followers for non-anonymous posts to protect anonymity
+    if (!isAnonymous) {
+      const postFollowers = await prisma.follow.findMany({
+        where: { followingId: user.id },
+        select: { followerId: true },
+      });
+      await Promise.all(
+        postFollowers.map((f) =>
+          createNotification({
+            recipientId: f.followerId,
+            type: "REPLY",
+            message: `${user.name ?? "有用户"} 发布了新帖子《${post.title}》`,
+            linkUrl: `/forum/${post.id}`,
+            relatedId: post.id,
+          })
+        )
+      );
+    }
     revalidatePath("/forum");
     redirect("/forum");
   } catch (error) {
@@ -681,7 +717,7 @@ async function uploadForumImages(formData: FormData, prefix: string) {
 
 async function createNotification(data: {
   recipientId: string;
-  type: "REPLY" | "ACCEPT" | "LIKE" | "COMMENT" | "DEADLINE";
+  type: "REPLY" | "ACCEPT" | "LIKE" | "COMMENT" | "DEADLINE" | "FOLLOW";
   message: string;
   linkUrl: string;
   relatedId: string;
@@ -1257,4 +1293,33 @@ export async function uploadAvatarAction(formData: FormData) {
     redirectWithError("/dashboard", friendlyError(error, "头像上传失败，请稍后重试"));
   }
   redirectWithSuccess("/dashboard", "头像已更新");
+}
+
+export async function toggleFollowAction(followingId: string) {
+  try {
+    const user = await requireUser();
+    if (user.id === followingId) throw new Error("不能关注自己");
+    const existing = await prisma.follow.findUnique({
+      where: { followerId_followingId: { followerId: user.id, followingId } },
+    });
+    if (existing) {
+      await prisma.follow.delete({
+        where: { followerId_followingId: { followerId: user.id, followingId } },
+      });
+    } else {
+      await prisma.follow.create({ data: { followerId: user.id, followingId } });
+      await createNotification({
+        recipientId: followingId,
+        type: "FOLLOW",
+        message: `${user.name ?? "有用户"} 关注了你`,
+        linkUrl: `/profile/${user.id}`,
+        relatedId: user.id,
+      });
+    }
+    revalidatePath(`/profile/${followingId}`);
+    revalidatePath(`/profile/${user.id}`);
+  } catch (error) {
+    if (isNextRedirectError(error)) throw error;
+    // follow toggle failure is non-critical; swallow silently
+  }
 }

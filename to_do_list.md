@@ -1,100 +1,124 @@
-# 电协 Hub —— 个人资料扩展 + 公开个人主页需求
+# 电协 Hub —— 关注功能需求
 
 ## 背景
 
-Next.js (App Router, TypeScript) + Prisma + PostgreSQL + Auth.js + Tailwind 的电协内部网站（EEA_Hub），暗色主题，已上线。
+Next.js (App Router, TypeScript) + Prisma + PostgreSQL + Auth.js + Tailwind + Supabase 的电协内部网站（EEA_Hub），暗色主题，已上线。
 
-User 表现有字段：id、username、realName、email、passwordHash、role、division、team、status、avatarUrl。
+通知系统已完整（Notification 表、NotificationType 枚举、createNotification 函数、NotificationBell 铃铛）。公开个人主页 /profile/[userId] 已实现。
 
-本次两块：1）扩展个人资料字段；2）新建公开个人主页页面。
+本次：实现用户关注功能。
 
-配色：主背景 #212733、卡片 #2A3140、主文字 #E8ECF1、主交互 #4FD1C5、次级 #6D96B4、暖金 #C4AC60、边框 #3A4250。
-
----
-
-## 第一块：扩展个人资料字段
-
-### 1. Schema 变更
-User 表新增以下可选字段（全部 String?）：
-- `qq` — QQ 号
-- `bio` — 个性签名（短文本，建议限制 100 字以内）
-- `major` — 专业
-- `grade` — 年级（如"大二"、"2024级"等，自由文本）
-
-生成 migration。
-
-### 2. 编辑资料表单（dashboard 设置面板）
-在现有"编辑资料" Tab 里，除了姓名和邮箱，加上这四个新字段：
-- QQ 号（输入框，选填）
-- 个性签名（textarea，选填，前端限制 100 字）
-- 专业（输入框，选填）
-- 年级（输入框，选填，placeholder 如"大二 / 2024级"）
-
-升级 `updateProfileAction`：把这四个新字段也一起保存到数据库。
+配色：主背景 #212733、卡片 #2A3140、主文字 #E8ECF1、主交互 #4FD1C5、次级 #6D96B4、成功 #6DAB70、边框 #3A4250。
 
 ---
 
-## 第二块：公开个人主页 /profile/[userId]
+## 一、数据库
 
-### 3. 新建页面 src/app/profile/[userId]/page.tsx
+新增 Follow 表：
+```prisma
+model Follow {
+  followerId  String
+  followingId String
+  createdAt   DateTime @default(now())
+  follower    User     @relation("Following", fields: [followerId], references: [id], onDelete: Cascade)
+  following   User     @relation("Followers", fields: [followingId], references: [id], onDelete: Cascade)
+  @@id([followerId, followingId])
+}
+```
 
-显示某个用户的公开资料，任何登录用户都可以查看。
+User 表加两个关系字段：
+- `following Follow[] @relation("Following")` — 我关注的人
+- `followers Follow[] @relation("Followers")` — 关注我的人
 
-**页面内容：**
+NotificationType 枚举加入 `FOLLOW`。
 
-顶部资料卡片：
-- 头像（大尺寸，用现有 Avatar 组件）
-- 真实姓名 + 用户名
-- 个性签名（如果有）
-- 专业 / 年级（如果有）
-- QQ 号（如果有，显示"QQ: xxxxx"）
-- 部门 / 小组 Badge
-- 角色 Badge（MEMBER/LEADER/ADMIN）
-
-下方内容列表（Tab 切换）：
-- **"发布的文档"** Tab：该用户发布的所有文档（只显示已发布的），卡片样式参考 /docs 页面
-- **"发布的帖子"** Tab：该用户发布的所有**实名**帖子（isAnonymous=false 的），卡片样式参考 /forum 页面
-
-**匿名保护：**
-- 匿名发的帖子**不出现**在公开主页（isAnonymous=false 才显示）
-- 匿名发的文档评论不显示
-
-**访问控制：**
-- 需要登录才能查看（未登录跳转到登录页）
-- 查看自己的 /profile/[userId] 正常显示（和别人看到的一样）
-
-### 4. 作者名字变成可点击链接
-
-在以下地方，把显示作者名字的地方改成 `<Link href="/profile/${authorId}">` 可点击链接，点击跳转到该用户的公开主页：
-- 论坛帖子列表（/forum）：每个帖子卡片的作者名
-- 论坛帖子详情页（/forum/[id]）：帖子作者名、每条回复的作者名
-- 文档详情页（/docs/[slug]）：文档作者名
-- 文档评论：每条评论的作者名
-
-**匿名保护（重要）：**
-- **匿名内容的作者名（"匿名楼主"、"匿名用户A"等）不能变成链接**，绝对不能通过点击匿名作者跳转到真实用户的主页（这会直接暴露匿名者身份）
-- 只有实名显示的作者名才加链接
+生成 migration + npx prisma generate。
 
 ---
 
-## 技术要求
+## 二、Server Actions
 
-- User 表加4个字段，生成 migration
-- updateProfileAction 更新这4个字段
-- /profile/[userId] 是新页面，需要登录
-- 作者链接只加在实名内容上，匿名内容绝对不加链接
+### `toggleFollowAction(followingId)`
+- 校验：不能关注自己（followerId === followingId → 报错）
+- 已关注 → 取消关注（delete）
+- 未关注 → 关注（create）+ 给被关注者发通知（type: FOLLOW，message: "XX 关注了你"，linkUrl: /profile/followerId）
+- 服务端校验登录状态
+
+### `createPostAction`（修改现有）
+在发帖成功后，给所有关注该作者的用户发通知：
+- **仅实名帖（isAnonymous: false）才触发**，匿名帖不触发（保护匿名性）
+- 查出所有 followerId where followingId = post.authorId
+- 给每个 follower 发通知：type REPLY（或新增 NEW_POST 类型，你判断），message: "XX 发布了新帖子《帖子标题》"，linkUrl: /forum/postId
+- 自己不给自己发
+
+### `createDocAction`（修改现有）
+在发文档成功后，给所有关注该作者的用户发通知：
+- **仅实名文档才触发**（文档本身没有匿名机制，所以正常触发）
+- 查出所有关注者
+- 给每个 follower 发通知：message: "XX 发布了新文档《文档标题》"，linkUrl: /docs/slug
+- 自己不给自己发
+
+---
+
+## 三、公开个人主页 /profile/[userId]
+
+### 关注/取消关注按钮
+- 显示在资料卡片右上角（或姓名旁边）
+- 已登录且不是本人 → 显示"关注"或"已关注"按钮
+- 是本人 → 不显示关注按钮（显示 ⚙️ 齿轮设置按钮）
+- 未登录 → 不显示关注按钮
+
+### 关注数/粉丝数
+- 资料卡片显示：X 关注 · X 粉丝
+- 点击"关注"数 → 可以考虑跳转到关注列表（可选，不强制）
+
+### 关注列表（可选，建议做）
+- /profile/[userId]?tab=following → 显示该用户关注的人列表
+- /profile/[userId]?tab=followers → 显示该用户的粉丝列表
+- 每个用户显示头像、姓名、个性签名、关注/取消关注按钮
+
+---
+
+## 四、个人主页 /dashboard
+
+- 显示自己的关注数和粉丝数
+- 可选：加"我的关注"和"我的粉丝"快捷入口（点击跳转到 /profile/[userId]?tab=following）
+
+---
+
+## 五、通知铃铛
+
+NotificationBell 加入 FOLLOW 类型图标（建议用 👥 或 ❤️）
+
+---
+
+## 六、匿名保护（关键）
+
+- **匿名帖不触发关注通知**：createPostAction 里，isAnonymous=true 的帖子不给关注者发通知
+- **关注列表不显示匿名内容**：/profile/[userId] 的帖子 Tab 已有 isAnonymous=false 过滤，保持不变
+- 关注关系本身是公开的（谁关注谁可以看到），这不涉及匿名
+
+---
+
+## 七、技术要求
+
+- Follow 表 + NotificationType.FOLLOW，生成 migration
+- toggleFollowAction：不能关注自己，关注时通知被关注者
+- createPostAction / createDocAction：关注者通知，匿名帖跳过
 - 改完跑 npm run prisma:generate、lint、build，全部通过
 
-## 验收要点
+## 八、验收要点
 
-- 编辑资料能填写并保存 QQ、个性签名、专业、年级
-- /profile/[userId] 显示用户资料 + 他的文档和实名帖子
-- 论坛/文档的实名作者名可点击，跳转到对应主页
-- **匿名内容的"匿名用户X"不是链接，点不了** ⚠️
-- 未登录访问 /profile 跳转登录页
+- /profile/[userId] 有关注/取消关注按钮，点击生效
+- 关注数/粉丝数正确显示
+- 不能关注自己（按钮不显示或禁用）
+- A 关注 B → B 收到"A 关注了你"通知
+- B 发实名帖 → A 收到通知；B 发匿名帖 → A 不收到通知 ⚠️
+- B 发新文档 → A 收到通知
+- 取消关注正常工作
 
-## 本次不做
+## 九、本次不做
 
-- 关注功能（下一批）
 - 私信功能
-- 封禁用户的公开主页处理（暂时正常显示）
+- 关注推荐（"你可能认识的人"）
+- 关注上限

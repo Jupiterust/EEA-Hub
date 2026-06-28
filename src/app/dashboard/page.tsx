@@ -3,10 +3,10 @@ import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
 import { changePasswordAction, deleteDocAction, deleteDocCommentAction, deletePostAction, deleteReplyAction, updateProfileAction } from "@/lib/actions";
 import { AvatarUpload } from "@/components/avatar-upload";
-import { SubmitButton } from "@/components/submit-button";
 import { ConfirmDelete } from "@/components/confirm-delete";
 import { NotificationsSection, type NotificationData } from "@/components/notification-bell";
-import { Badge, editLinkClass, deleteLinkClass, inputClass } from "@/components/ui";
+import { ProfileSettingsModal } from "@/components/profile-settings-modal";
+import { Badge, editLinkClass, deleteLinkClass } from "@/components/ui";
 import { divisionLabels, roleLabels, statusLabels, teamLabels } from "@/lib/labels";
 import { FeedbackBanner } from "@/components/feedback-banner";
 
@@ -124,7 +124,17 @@ export default async function DashboardPage({
     }),
     prisma.user.findUnique({
       where: { id: user.id },
-      select: { avatarUrl: true, realName: true, email: true, qq: true, bio: true, major: true, grade: true },
+      select: {
+        avatarUrl: true,
+        username: true,
+        realName: true,
+        email: true,
+        qq: true,
+        bio: true,
+        major: true,
+        grade: true,
+        _count: { select: { following: true, followers: true } },
+      },
     }),
     prisma.notification.findMany({
       where: { recipientId: user.id },
@@ -158,10 +168,47 @@ export default async function DashboardPage({
       <section className="rounded-lg border border-border bg-surface p-6">
         <div className="flex flex-col gap-5 sm:flex-row sm:items-start">
           <AvatarUpload currentUrl={avatarUrl} />
-          <div className="flex-1">
-            <h1 className="text-3xl font-black text-text-primary">个人主页</h1>
-            <div className="mt-4 flex flex-wrap gap-2">
-              <Badge tone="blue">{user.name}</Badge>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-start justify-between gap-2">
+              <div>
+                <h1 className="text-2xl font-black text-text-primary">{currentRealName}</h1>
+                {dbUser?.username && (
+                  <p className="mt-0.5 text-sm text-text-secondary">@{dbUser.username}</p>
+                )}
+              </div>
+              <ProfileSettingsModal
+                updateProfileAction={updateProfileAction}
+                changePasswordAction={changePasswordAction}
+                currentRealName={currentRealName}
+                currentEmail={currentEmail}
+                currentQq={currentQq}
+                currentBio={currentBio}
+                currentMajor={currentMajor}
+                currentGrade={currentGrade}
+              />
+            </div>
+            {currentBio && (
+              <p className="mt-3 text-sm leading-relaxed text-text-secondary">{currentBio}</p>
+            )}
+            {(currentMajor || currentGrade) && (
+              <p className="mt-2 text-sm text-text-secondary">
+                {[currentMajor, currentGrade].filter(Boolean).join(" · ")}
+              </p>
+            )}
+            {currentQq && (
+              <p className="mt-1 text-sm text-text-secondary">QQ: {currentQq}</p>
+            )}
+            {dbUser && (
+              <div className="mt-2 flex gap-4 text-sm text-text-secondary">
+                <Link href={`/profile/${user.id}?tab=following`} className="hover:text-primary hover:underline">
+                  <span className="font-semibold text-text-primary">{dbUser._count.following}</span> 关注
+                </Link>
+                <Link href={`/profile/${user.id}?tab=followers`} className="hover:text-primary hover:underline">
+                  <span className="font-semibold text-text-primary">{dbUser._count.followers}</span> 粉丝
+                </Link>
+              </div>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
               <Badge>{divisionLabels[user.division]}</Badge>
               <Badge>{teamLabels[user.team]}</Badge>
               <Badge tone={user.role === "ADMIN" ? "red" : user.role === "LEADER" ? "amber" : "slate"}>{roleLabels[user.role]}</Badge>
@@ -172,29 +219,6 @@ export default async function DashboardPage({
       </section>
 
       <NotificationsSection initialNotifications={notifications} />
-
-      <section className="mt-6 rounded-lg border border-border bg-surface p-6">
-        <h2 className="text-xl font-black text-text-primary">编辑资料</h2>
-        <form action={updateProfileAction} className="mt-4 grid gap-3 sm:max-w-sm">
-          <input name="realName" defaultValue={currentRealName} placeholder="真实姓名" required className={inputClass} />
-          <input name="email" type="email" defaultValue={currentEmail} placeholder="邮箱（选填）" className={inputClass} />
-          <input name="qq" defaultValue={currentQq} placeholder="QQ 号（选填）" className={inputClass} />
-          <textarea name="bio" defaultValue={currentBio} placeholder="个性签名（选填，100 字以内）" maxLength={100} rows={3} className={inputClass} />
-          <input name="major" defaultValue={currentMajor} placeholder="专业（选填）" className={inputClass} />
-          <input name="grade" defaultValue={currentGrade} placeholder="年级（选填，如：大二 / 2024级）" className={inputClass} />
-          <SubmitButton pendingText="保存中...">保存资料</SubmitButton>
-        </form>
-      </section>
-
-      <section className="mt-6 rounded-lg border border-border bg-surface p-6">
-        <h2 className="text-xl font-black text-text-primary">修改密码</h2>
-        <form action={changePasswordAction} className="mt-4 grid gap-3 sm:max-w-sm">
-          <input type="password" name="currentPassword" placeholder="当前密码" required className={inputClass} />
-          <input type="password" name="newPassword" placeholder="新密码（至少 6 位）" required className={inputClass} />
-          <input type="password" name="confirmPassword" placeholder="确认新密码" required className={inputClass} />
-          <SubmitButton pendingText="修改中...">修改密码</SubmitButton>
-        </form>
-      </section>
 
       <section className="mt-6 grid gap-4 lg:grid-cols-3">
         {user.role === "MEMBER" ? (
