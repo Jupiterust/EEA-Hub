@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 import { prisma } from "@/lib/prisma";
-import { requireLeader } from "@/lib/authz";
+import { requireUser } from "@/lib/authz";
 import { updateDocAction } from "@/lib/actions";
 import { DivisionTeamSelect } from "@/components/division-team-select";
 import { FeedbackBanner } from "@/components/feedback-banner";
@@ -20,7 +20,7 @@ export default async function EditDocPage({
   params: Promise<{ slug: string }>;
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
-  const user = await requireLeader();
+  const user = await requireUser();
   const { slug } = await params;
   const query = await searchParams;
 

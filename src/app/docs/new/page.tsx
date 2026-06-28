@@ -1,4 +1,4 @@
-import { requireLeader } from "@/lib/authz";
+import { requireUser } from "@/lib/authz";
 import { DocNewForm } from "@/components/doc-new-form";
 import { FeedbackBanner } from "@/components/feedback-banner";
 
@@ -9,7 +9,7 @@ export default async function NewDocPage({
 }: {
   searchParams: Promise<{ error?: string; success?: string }>;
 }) {
-  await requireLeader();
+  await requireUser();
   const params = await searchParams;
 
   return (

@@ -116,7 +116,7 @@ export default async function DocsPage({
               </select>
               <button className={secondaryButtonClass}>筛选</button>
             </form>
-            {session?.user.role !== "MEMBER" ? (
+            {session?.user ? (
               <Link href="/docs/new" className={`${secondaryButtonClass} mt-4 w-full gap-2`}>
                 <Plus className="size-4" /> 新建文档
               </Link>

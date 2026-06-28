@@ -300,10 +300,14 @@ export async function banUserAction(formData: FormData) {
 export async function createDocAction(formData: FormData) {
   let slug = "";
   try {
-    const user = await requireLeader();
+    const user = await requireUser();
     const division = divisionEnum.parse(stringValue(formData, "division"));
     const team = teamEnum.parse(stringValue(formData, "team"));
-    if (!canManageScope(user, { division, team })) {
+    if (user.role === "MEMBER") {
+      if (division !== user.division || (team !== user.team && team !== "GENERAL")) {
+        throw new Error("普通成员只能在自己所属的部门/小组发布文档");
+      }
+    } else if (!canManageScope(user, { division, team })) {
       throw new Error("无权发布该范围文档");
     }
     const title = stringValue(formData, "title");
@@ -825,18 +829,22 @@ async function upsertLikeNotification(data: {
 export async function updateDocAction(formData: FormData) {
   let slug = "";
   try {
-    const user = await requireLeader();
+    const user = await requireUser();
     const docId = stringValue(formData, "docId");
     const doc = await prisma.techDoc.findUniqueOrThrow({ where: { id: docId } });
     slug = doc.slug;
 
-    if (doc.authorId !== user.id) {
+    if (doc.authorId !== user.id && user.role !== "ADMIN") {
       throw new Error("无权编辑该文档");
     }
 
     const division = divisionEnum.parse(stringValue(formData, "division"));
     const team = teamEnum.parse(stringValue(formData, "team"));
-    if (!canManageScope(user, { division, team })) {
+    if (user.role === "MEMBER") {
+      if (division !== user.division || (team !== user.team && team !== "GENERAL")) {
+        throw new Error("普通成员只能将文档范围设为自己所属的部门/小组");
+      }
+    } else if (!canManageScope(user, { division, team })) {
       throw new Error("无权将文档范围改为该部门/小组");
     }
 
