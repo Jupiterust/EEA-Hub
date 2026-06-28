@@ -128,7 +128,13 @@ export default async function AdminPage({
                     ) : null}
                     <form action={resolveReportAction}>
                       <input type="hidden" name="reportId" value={report.id} />
-                      <SubmitButton variant="secondary" pendingText="处理中...">标记已处理</SubmitButton>
+                      <input type="hidden" name="deleteContent" value="true" />
+                      <SubmitButton variant="secondary" pendingText="处理中...">处理并删除内容</SubmitButton>
+                    </form>
+                    <form action={resolveReportAction}>
+                      <input type="hidden" name="reportId" value={report.id} />
+                      <input type="hidden" name="deleteContent" value="false" />
+                      <SubmitButton variant="secondary" pendingText="处理中...">仅标记已处理</SubmitButton>
                     </form>
                     <form action={dismissReportAction}>
                       <input type="hidden" name="reportId" value={report.id} />

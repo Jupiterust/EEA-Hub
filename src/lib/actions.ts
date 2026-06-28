@@ -550,12 +550,39 @@ export async function resolveReportAction(formData: FormData) {
     if (user.role !== "ADMIN") {
       throw new Error("仅管理员可处理举报");
     }
-    await prisma.report.update({
-      where: { id: stringValue(formData, "reportId") },
-      data: { status: "RESOLVED" },
-    });
+    const reportId = stringValue(formData, "reportId");
+    const deleteContent = stringValue(formData, "deleteContent") === "true";
+
+    if (deleteContent) {
+      const report = await prisma.report.findUnique({
+        where: { id: reportId },
+        select: { postId: true, replyId: true },
+      });
+      if (report?.postId) {
+        // Cascade deletes all replies and related reports
+        await prisma.forumPost.deleteMany({ where: { id: report.postId } });
+        revalidatePath("/forum");
+      } else if (report?.replyId) {
+        const replyId = report.replyId;
+        const [childCount, mentionCount] = await Promise.all([
+          prisma.forumReply.count({ where: { parentId: replyId } }),
+          prisma.forumReply.count({ where: { replyToId: replyId } }),
+        ]);
+        if (childCount > 0 || mentionCount > 0) {
+          await prisma.forumReply.update({ where: { id: replyId }, data: { isDeleted: true } });
+        } else {
+          // Hard delete cascades to related reports
+          await prisma.forumReply.deleteMany({ where: { id: replyId } });
+        }
+      }
+      // No-op if report was already cascade-deleted
+      await prisma.report.updateMany({ where: { id: reportId }, data: { status: "RESOLVED" } });
+    } else {
+      await prisma.report.update({ where: { id: reportId }, data: { status: "RESOLVED" } });
+    }
+
     revalidatePath("/admin");
-    redirectWithSuccess("/admin", "举报已标记为已处理");
+    redirectWithSuccess("/admin", deleteContent ? "举报已处理，内容已删除" : "举报已标记为已处理");
   } catch (error) {
     redirectWithError("/admin", friendlyError(error, "操作失败，请稍后再试"));
   }
