@@ -171,15 +171,22 @@ export async function updateProfileAction(formData: FormData) {
     const user = await requireUser();
     const realName = stringValue(formData, "realName").trim();
     const email = stringValue(formData, "email").trim() || null;
+    const qq = stringValue(formData, "qq").trim() || null;
+    const bio = stringValue(formData, "bio").trim() || null;
+    const major = stringValue(formData, "major").trim() || null;
+    const grade = stringValue(formData, "grade").trim() || null;
     if (!realName) {
       throw new Error("真实姓名不能为空");
+    }
+    if (bio && bio.length > 100) {
+      throw new Error("个性签名不能超过 100 字");
     }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
       throw new Error("邮箱格式不正确");
     }
     await prisma.user.update({
       where: { id: user.id },
-      data: { realName, email },
+      data: { realName, email, qq, bio, major, grade },
     });
     redirectWithSuccess("/dashboard", "资料已更新，姓名变更将在重新登录后生效");
   } catch (error) {

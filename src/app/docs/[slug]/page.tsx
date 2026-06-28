@@ -181,7 +181,10 @@ export default async function DocDetailPage({
               {doc.path && <span className="text-xs text-text-secondary/70">{doc.path}</span>}
               <span className="ml-auto inline-flex items-center gap-1.5 text-xs">
                 <Avatar url={doc.author.avatarUrl} size="xs" alt={doc.author.realName} />
-                {doc.author.realName} · 更新于 {doc.updatedAt.toLocaleDateString("zh-CN")}
+                <Link href={`/profile/${doc.authorId}`} className="hover:text-primary hover:underline">
+                  {doc.author.realName}
+                </Link>
+                {" · "}更新于 {doc.updatedAt.toLocaleDateString("zh-CN")}
               </span>
             </div>
 
@@ -276,7 +279,16 @@ export default async function DocDetailPage({
                             size="xs"
                             alt={authorLabel}
                           />
-                          <span>{authorLabel} · {comment.createdAt.toLocaleString("zh-CN")}</span>
+                          <span>
+                            {comment.isAnonymous ? (
+                              authorLabel
+                            ) : (
+                              <Link href={`/profile/${comment.authorId}`} className="hover:text-primary hover:underline">
+                                {authorLabel}
+                              </Link>
+                            )}
+                            {" · "}{comment.createdAt.toLocaleString("zh-CN")}
+                          </span>
                         </div>
 
                         {isEditing ? (
@@ -378,7 +390,13 @@ export default async function DocDetailPage({
                                       alt={subLabel}
                                     />
                                     <span className="text-xs text-text-secondary">
-                                      <span className="font-medium text-text-primary">{subLabel}</span>
+                                      {sub.isAnonymous ? (
+                                        <span className="font-medium text-text-primary">{subLabel}</span>
+                                      ) : (
+                                        <Link href={`/profile/${sub.authorId}`} className="font-medium text-text-primary hover:text-primary hover:underline">
+                                          {subLabel}
+                                        </Link>
+                                      )}
                                       {atLabel && sub.replyToId && (
                                         <span className="mx-1">
                                           回复{" "}

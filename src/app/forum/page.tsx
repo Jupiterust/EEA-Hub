@@ -120,7 +120,8 @@ export default async function ForumPage({
 
       <section className="mt-4 grid gap-3">
         {posts.map((post) => (
-          <Link key={post.id} href={`/forum/${post.id}`} className="rounded-lg border border-border bg-surface p-5 transition hover:border-primary/40">
+          <div key={post.id} className="relative rounded-lg border border-border bg-surface p-5 transition hover:border-primary/40">
+            <Link href={`/forum/${post.id}`} className="absolute inset-0 z-0" aria-label={post.title} />
             <div className="flex flex-wrap items-center gap-2">
               <Badge tone={post.isSolved ? "green" : "amber"}>{post.isSolved ? "已解决" : "讨论中"}</Badge>
               <Badge>{divisionLabels[post.division]}</Badge>
@@ -138,11 +139,17 @@ export default async function ForumPage({
                 size="xs"
                 alt={post.isAnonymous ? "匿名" : post.author.realName}
               />
-              <span>{post.isAnonymous ? "匿名楼主" : post.author.realName}</span>
+              {post.isAnonymous ? (
+                <span>匿名楼主</span>
+              ) : (
+                <Link href={`/profile/${post.authorId}`} className="relative z-10 hover:text-primary hover:underline">
+                  {post.author.realName}
+                </Link>
+              )}
               <span className="inline-flex items-center gap-1"><MessageSquare className="size-4" /> {post._count.replies}</span>
               <span className="inline-flex items-center gap-1"><ThumbsUp className="size-4" /> {post._count.postLikes}</span>
             </div>
-          </Link>
+          </div>
         ))}
         {posts.length === 0 && (
           <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center text-text-secondary">

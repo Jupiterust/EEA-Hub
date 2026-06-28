@@ -1,0 +1,5 @@
+-- AlterTable
+ALTER TABLE "User" ADD COLUMN "qq" TEXT,
+ADD COLUMN "bio" TEXT,
+ADD COLUMN "major" TEXT,
+ADD COLUMN "grade" TEXT;

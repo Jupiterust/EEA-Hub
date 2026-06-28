@@ -124,7 +124,7 @@ export default async function DashboardPage({
     }),
     prisma.user.findUnique({
       where: { id: user.id },
-      select: { avatarUrl: true, realName: true, email: true },
+      select: { avatarUrl: true, realName: true, email: true, qq: true, bio: true, major: true, grade: true },
     }),
     prisma.notification.findMany({
       where: { recipientId: user.id },
@@ -136,6 +136,10 @@ export default async function DashboardPage({
   const avatarUrl: string | null = dbUser?.avatarUrl ?? null;
   const currentRealName: string = dbUser?.realName ?? user.name ?? "";
   const currentEmail: string = dbUser?.email ?? "";
+  const currentQq: string = dbUser?.qq ?? "";
+  const currentBio: string = dbUser?.bio ?? "";
+  const currentMajor: string = dbUser?.major ?? "";
+  const currentGrade: string = dbUser?.grade ?? "";
 
   const notifications: NotificationData[] = notificationsRaw.map((n) => ({
     id: n.id,
@@ -174,6 +178,10 @@ export default async function DashboardPage({
         <form action={updateProfileAction} className="mt-4 grid gap-3 sm:max-w-sm">
           <input name="realName" defaultValue={currentRealName} placeholder="真实姓名" required className={inputClass} />
           <input name="email" type="email" defaultValue={currentEmail} placeholder="邮箱（选填）" className={inputClass} />
+          <input name="qq" defaultValue={currentQq} placeholder="QQ 号（选填）" className={inputClass} />
+          <textarea name="bio" defaultValue={currentBio} placeholder="个性签名（选填，100 字以内）" maxLength={100} rows={3} className={inputClass} />
+          <input name="major" defaultValue={currentMajor} placeholder="专业（选填）" className={inputClass} />
+          <input name="grade" defaultValue={currentGrade} placeholder="年级（选填，如：大二 / 2024级）" className={inputClass} />
           <SubmitButton pendingText="保存中...">保存资料</SubmitButton>
         </form>
       </section>

@@ -126,7 +126,16 @@ export default async function ForumDetailPage({
             size="sm"
             alt={post.isAnonymous ? "匿名" : post.author.realName}
           />
-          <span>{post.isAnonymous ? "匿名楼主" : post.author.realName} · {post.createdAt.toLocaleString("zh-CN")}</span>
+          {post.isAnonymous ? (
+            <span>匿名楼主 · {post.createdAt.toLocaleString("zh-CN")}</span>
+          ) : (
+            <span>
+              <Link href={`/profile/${post.authorId}`} className="hover:text-primary hover:underline">
+                {post.author.realName}
+              </Link>
+              {" · "}{post.createdAt.toLocaleString("zh-CN")}
+            </span>
+          )}
         </div>
         <div className="mt-6 rounded-md bg-elevated p-4">
           <MarkdownView content={post.content} />
@@ -219,7 +228,14 @@ export default async function ForumDetailPage({
                     alt={authorLabel}
                   />
                   <span className="text-sm text-text-secondary">
-                    {authorLabel} · {reply.createdAt.toLocaleString("zh-CN")}
+                    {reply.isAnonymous ? (
+                      authorLabel
+                    ) : (
+                      <Link href={`/profile/${reply.authorId}`} className="hover:text-primary hover:underline">
+                        {authorLabel}
+                      </Link>
+                    )}
+                    {" · "}{reply.createdAt.toLocaleString("zh-CN")}
                   </span>
                   {reply.isAccepted && (
                     <span className="inline-flex items-center gap-1 rounded-md bg-success/15 px-2 py-0.5 text-xs font-semibold text-success ring-1 ring-success/35">
@@ -355,7 +371,13 @@ export default async function ForumDetailPage({
                                 alt={subLabel}
                               />
                               <span className="text-xs text-text-secondary">
-                                <span className="font-medium text-text-primary">{subLabel}</span>
+                                {sub.isAnonymous ? (
+                                  <span className="font-medium text-text-primary">{subLabel}</span>
+                                ) : (
+                                  <Link href={`/profile/${sub.authorId}`} className="font-medium text-text-primary hover:text-primary hover:underline">
+                                    {subLabel}
+                                  </Link>
+                                )}
                                 {atLabel && sub.replyToId && (
                                   <span className="mx-1">
                                     回复{" "}

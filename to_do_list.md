@@ -1,92 +1,100 @@
-# EEA-Hub 待办事项
+# 电协 Hub —— 个人资料扩展 + 公开个人主页需求
 
-> 基于代码审查生成，2026-06-27
+## 背景
 
----
+Next.js (App Router, TypeScript) + Prisma + PostgreSQL + Auth.js + Tailwind 的电协内部网站（EEA_Hub），暗色主题，已上线。
 
-## 🔴 Bug / 安全隐患（优先修复）
+User 表现有字段：id、username、realName、email、passwordHash、role、division、team、status、avatarUrl。
 
-### 1. `unacceptReplyAction` 不清除 `isSolved` 字段
-- **位置：** `src/lib/actions.ts` — `unacceptReplyAction`
-- **问题：** 取消采纳时把 `solutionReplyId` 设为 null，但没有同时把 `ForumPost.isSolved` 改回 `false`，导致帖子在论坛列表里永远显示"已解决"绿色徽章。
-- **修复：** 在 `$transaction` 里加 `isSolved: false`。改动量：1 行。
+本次两块：1）扩展个人资料字段；2）新建公开个人主页页面。
 
-### 2. 已关闭作业仍可提交
-- **位置：** `src/lib/actions.ts` — `submitAssignmentAction`
-- **问题：** 只检查迟交时间，没有检查 `assignment.status === "CLOSED"`，Leader 关闭作业后成员仍可上传。
-- **修复：** 拿到 assignment 后加 `if (assignment.status === "CLOSED") throw new Error("作业已关闭")`。改动量：3 行。
-
-### 3. 被封禁用户在 JWT 过期前仍可正常使用网站
-- **位置：** `src/auth.ts`
-- **问题：** `authorize()` 只在登录时检查 `user.status !== "ACTIVE"`，之后全靠 JWT。Admin 封禁某人后，对方 JWT 未过期（默认 30 天）期间照常发帖、提交作业。
-- **修复：** 在 `jwt` callback 里定期（或每次）从 DB 重新查 status，若不为 ACTIVE 则清除 token。改动量：中等。
-
-### ~~4. 生产环境遗留 `console.log` 暴露用户信息~~ ✅ 已修复
-- **位置：** `src/app/dashboard/page.tsx`
-- ~~`console.log("临期检查:", user.id, user.division, user.team, ...)` 输出用户敏感信息。~~
-- 已删除。
-
-### 5. 举报永远无法标记为"已处理"
-- **位置：** `src/app/admin/page.tsx`、`src/lib/actions.ts`
-- **问题：** Admin 举报队列只能查看，没有"标记已解决/驳回"操作，`Report.status` 永远是 `OPEN`，举报只增不减。
-- **修复：** 新增 `resolveReportAction` / `dismissReportAction`，Admin 页面加按钮。改动量：中等。
-
-### 6. 作业批改后学生不收到通知
-- **位置：** `src/lib/actions.ts` — `reviewSubmissionAction`
-- **问题：** Leader 批改完提交（通过/不通过/加反馈）后，学生没有任何通知，其他操作（回复、点赞）都有通知，批改通知明显缺失。
-- **修复：** 在 `reviewSubmissionAction` 末尾加 `createNotification(...)` 通知对应学生。改动量：小。
+配色：主背景 #212733、卡片 #2A3140、主文字 #E8ECF1、主交互 #4FD1C5、次级 #6D96B4、暖金 #C4AC60、边框 #3A4250。
 
 ---
 
-## 🟡 现有功能改善
+## 第一块：扩展个人资料字段
 
-### 7. `DocVersion` 模型存在但从未写入
-- **位置：** `prisma/schema.prisma:141`、`src/lib/actions.ts` — `updateDocAction`
-- **问题：** Schema 里有完整的 `DocVersion` 模型，但 `updateDocAction` 更新文档时从不创建版本快照，版本历史功能框架已搭好，只差执行。
-- **改动量：** 小。`updateDocAction` 里加 `prisma.docVersion.create`，加版本历史页面。
+### 1. Schema 变更
+User 表新增以下可选字段（全部 String?）：
+- `qq` — QQ 号
+- `bio` — 个性签名（短文本，建议限制 100 字以内）
+- `major` — 专业
+- `grade` — 年级（如"大二"、"2024级"等，自由文本）
 
-### 8. 论坛 / 文档 / Admin 用户列表无分页
-- **位置：** `src/app/forum/page.tsx`（无 take）、`src/app/assignments/page.tsx`（无 take）、`src/app/admin/page.tsx`（`take: 80` 硬截）
-- **问题：** 内容多时全量加载，随数据增长变慢，Admin 页超过 80 名用户就看不全。
-- **改动量：** 中等。URL 参数 `?page=N`，查询加 `skip/take`，页面底加翻页按钮。
+生成 migration。
 
-### 9. 没有密码修改功能
-- **位置：** `src/app/dashboard/page.tsx`
-- **问题：** 用户注册后无法修改密码，也没有忘记密码入口。Admin 目前也无法替用户重置密码。
-- **改动量：** 中等。Dashboard 加"修改密码"表单 + server action，Admin 页加"重置密码"入口。
+### 2. 编辑资料表单（dashboard 设置面板）
+在现有"编辑资料" Tab 里，除了姓名和邮箱，加上这四个新字段：
+- QQ 号（输入框，选填）
+- 个性签名（textarea，选填，前端限制 100 字）
+- 专业（输入框，选填）
+- 年级（输入框，选填，placeholder 如"大二 / 2024级"）
 
-### 10. 作业列表无搜索 / 状态筛选
-- **位置：** `src/app/assignments/page.tsx`
-- **问题：** 作业数量多时找不到特定作业，没有关键词搜索，没有按 OPEN/CLOSED 筛选。
-- **改动量：** 小。加搜索框和状态 select，URL 参数传递，Prisma where 加条件。
-
-### 11. 截止日期通知依赖用户主动访问 Dashboard
-- **位置：** `src/app/dashboard/page.tsx:26`
-- **问题：** 24 小时截止预警写在页面渲染里，不常开网站的成员收不到提醒。
-- **改动量：** 中等。改为 `/api/cron/deadline-check` API Route + Vercel Cron，每小时自动运行。
-
-### 12. 全站搜索不包含作业
-- **位置：** `src/app/search/page.tsx`
-- **问题：** 只搜索文档和论坛，作业无法被搜到。
-- **改动量：** 小。`Promise.all` 里加 `prisma.assignment.findMany`，结果加"作业"类型 badge。
-
-### 13. 角色 / 部门变更后需重新登录才生效
-- **位置：** `src/auth.ts`（同第 3 条）
-- **问题：** Admin 把某人从 MEMBER 升为 LEADER 后，对方需退出再登录才能发文档，体验差。
-- **改动量：** 同第 3 条，JWT refresh 机制一并解决。
+升级 `updateProfileAction`：把这四个新字段也一起保存到数据库。
 
 ---
 
-## 🟢 可以添加的新功能
+## 第二块：公开个人主页 /profile/[userId]
 
-### 14. 个人资料编辑（真实姓名、邮箱）
-- **问题：** 注册后只能改头像，姓名写错或邮箱变更只能联系管理员手动改。
-- **改动量：** 小。Dashboard 加"编辑资料"表单 + server action。
+### 3. 新建页面 src/app/profile/[userId]/page.tsx
 
-### 15. 文档点赞数在列表可见
-- **问题：** `DocLike` 已有，但列表和搜索结果不显示点赞数，无法判断文档质量。
-- **改动量：** 极小。docs/page.tsx 查询加 `_count: { select: { docLikes: true } }`，卡片上显示数字。
+显示某个用户的公开资料，任何登录用户都可以查看。
 
-### 16. 邮件通知（截止日期、被回复、批改结果）
-- **问题：** 站内通知已有，但不常看网站的成员收不到消息。
-- **改动量：** 中等。引入 Resend / Supabase 邮件，在 `createNotification` 里按用户设置可选发邮件。
+**页面内容：**
+
+顶部资料卡片：
+- 头像（大尺寸，用现有 Avatar 组件）
+- 真实姓名 + 用户名
+- 个性签名（如果有）
+- 专业 / 年级（如果有）
+- QQ 号（如果有，显示"QQ: xxxxx"）
+- 部门 / 小组 Badge
+- 角色 Badge（MEMBER/LEADER/ADMIN）
+
+下方内容列表（Tab 切换）：
+- **"发布的文档"** Tab：该用户发布的所有文档（只显示已发布的），卡片样式参考 /docs 页面
+- **"发布的帖子"** Tab：该用户发布的所有**实名**帖子（isAnonymous=false 的），卡片样式参考 /forum 页面
+
+**匿名保护：**
+- 匿名发的帖子**不出现**在公开主页（isAnonymous=false 才显示）
+- 匿名发的文档评论不显示
+
+**访问控制：**
+- 需要登录才能查看（未登录跳转到登录页）
+- 查看自己的 /profile/[userId] 正常显示（和别人看到的一样）
+
+### 4. 作者名字变成可点击链接
+
+在以下地方，把显示作者名字的地方改成 `<Link href="/profile/${authorId}">` 可点击链接，点击跳转到该用户的公开主页：
+- 论坛帖子列表（/forum）：每个帖子卡片的作者名
+- 论坛帖子详情页（/forum/[id]）：帖子作者名、每条回复的作者名
+- 文档详情页（/docs/[slug]）：文档作者名
+- 文档评论：每条评论的作者名
+
+**匿名保护（重要）：**
+- **匿名内容的作者名（"匿名楼主"、"匿名用户A"等）不能变成链接**，绝对不能通过点击匿名作者跳转到真实用户的主页（这会直接暴露匿名者身份）
+- 只有实名显示的作者名才加链接
+
+---
+
+## 技术要求
+
+- User 表加4个字段，生成 migration
+- updateProfileAction 更新这4个字段
+- /profile/[userId] 是新页面，需要登录
+- 作者链接只加在实名内容上，匿名内容绝对不加链接
+- 改完跑 npm run prisma:generate、lint、build，全部通过
+
+## 验收要点
+
+- 编辑资料能填写并保存 QQ、个性签名、专业、年级
+- /profile/[userId] 显示用户资料 + 他的文档和实名帖子
+- 论坛/文档的实名作者名可点击，跳转到对应主页
+- **匿名内容的"匿名用户X"不是链接，点不了** ⚠️
+- 未登录访问 /profile 跳转登录页
+
+## 本次不做
+
+- 关注功能（下一批）
+- 私信功能
+- 封禁用户的公开主页处理（暂时正常显示）

@@ -76,6 +76,10 @@ model User {
   team           Team
   bannedReason   String?
   avatarUrl      String?
+  qq             String?
+  bio            String?
+  major          String?
+  grade          String?
   createdAt      DateTime  @default(now())
   updatedAt      DateTime  @updatedAt
   approvedAt     DateTime?
