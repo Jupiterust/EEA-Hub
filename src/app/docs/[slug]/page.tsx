@@ -9,6 +9,7 @@ import {
   deleteDocCommentAction,
   toggleDocCommentLikeAction,
   toggleDocLikeAction,
+  toggleDocPinAction,
   updateDocCommentAction,
 } from "@/lib/actions";
 import { requireUser } from "@/lib/authz";
@@ -111,6 +112,7 @@ export default async function DocDetailPage({
   const currentUserRole = session?.user?.role;
   const isAuthor = !!currentUserId && currentUserId === doc.authorId;
   const canDelete = isAuthor || currentUserRole === "ADMIN";
+  const canPinDoc = currentUserRole === "LEADER" || currentUserRole === "ADMIN";
 
   const userLikedDoc = Array.isArray(doc.docLikes) && doc.docLikes.length > 0;
   const docLikeCount = doc._count.docLikes;
@@ -193,7 +195,7 @@ export default async function DocDetailPage({
               <p className="mt-2 text-base leading-relaxed text-text-secondary">{doc.excerpt}</p>
             )}
 
-            {(isAuthor || canDelete) && (
+            {(isAuthor || canDelete || canPinDoc) && (
               <div className="mt-4 flex flex-wrap gap-2 border-t border-border pt-4">
                 {isAuthor && (
                   <Link href={`/docs/${slug}/edit`} className={cn(editButtonClass, "text-xs px-3")}>
@@ -213,6 +215,15 @@ export default async function DocDetailPage({
                     buttonLabel="删除文档"
                     buttonClassName={cn(deleteButtonClass, "text-xs px-3")}
                   />
+                )}
+                {canPinDoc && (
+                  <form action={toggleDocPinAction}>
+                    <input type="hidden" name="docId" value={doc.id} />
+                    <input type="hidden" name="returnTo" value={`/docs/${slug}`} />
+                    <SubmitButton variant="secondary" pendingText="..." className="px-3 py-1.5 text-xs">
+                      {doc.isPinned ? "取消置顶" : "📌 置顶"}
+                    </SubmitButton>
+                  </form>
                 )}
               </div>
             )}

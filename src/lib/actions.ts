@@ -1424,6 +1424,36 @@ export async function toggleFollowAction(followingId: string) {
   }
 }
 
+export async function toggleDocPinAction(formData: FormData) {
+  const docId = stringValue(formData, "docId");
+  const returnTo = safeReturnTo(formData, "/docs");
+  try {
+    await requireLeader();
+    const doc = await prisma.techDoc.findUniqueOrThrow({
+      where: { id: docId },
+      select: { isPinned: true, slug: true },
+    });
+    if (doc.isPinned) {
+      await prisma.techDoc.update({
+        where: { id: docId },
+        data: { isPinned: false, pinnedAt: null },
+      });
+    } else {
+      const pinnedCount = await prisma.techDoc.count({ where: { isPinned: true } });
+      if (pinnedCount >= 5) throw new Error("最多只能置顶 5 条文档");
+      await prisma.techDoc.update({
+        where: { id: docId },
+        data: { isPinned: true, pinnedAt: new Date() },
+      });
+    }
+    revalidatePath("/docs");
+    revalidatePath(`/docs/${doc.slug}`);
+  } catch (error) {
+    redirectWithError(returnTo, friendlyError(error, "置顶操作失败，请稍后重试"));
+  }
+  redirect(returnTo);
+}
+
 export async function togglePinAction(formData: FormData) {
   const postId = stringValue(formData, "postId");
   const returnTo = safeReturnTo(formData, postId ? `/forum/${postId}` : "/forum");

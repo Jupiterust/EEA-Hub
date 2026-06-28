@@ -2,9 +2,11 @@ import Link from "next/link";
 import { Plus, Search, ThumbsUp } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
+import { toggleDocPinAction } from "@/lib/actions";
 import { DocTree } from "@/components/doc-tree";
 import { HighlightText } from "@/components/highlight-text";
 import { Pagination } from "@/components/pagination";
+import { SubmitButton } from "@/components/submit-button";
 import { Badge, secondaryButtonClass } from "@/components/ui";
 import { divisionLabels, teamLabels } from "@/lib/labels";
 
@@ -17,13 +19,14 @@ export default async function DocsPage({
 }: {
   searchParams: Promise<{ q?: string; author?: string; division?: string; page?: string }>;
 }) {
-  const session = await auth();
-  const params = await searchParams;
+  const [session, params] = await Promise.all([auth(), searchParams]);
   const q = params.q?.trim();
   const author = params.author?.trim();
   const page = Math.max(1, parseInt(params.page ?? "1", 10) || 1);
+  const userRole = session?.user?.role;
+  const canPin = userRole === "LEADER" || userRole === "ADMIN";
 
-  const where = {
+  const baseWhere = {
     published: true,
     ...(q
       ? {
@@ -53,15 +56,22 @@ export default async function DocsPage({
     { updatedAt: "desc" as const },
   ];
 
-  const [docs, total, allDocs] = await Promise.all([
+  const docInclude = { _count: { select: { docLikes: true } } } as const;
+
+  const [pinnedDocs, docs, total, allDocs] = await Promise.all([
     prisma.techDoc.findMany({
-      where,
+      where: { ...baseWhere, isPinned: true },
+      include: docInclude,
+      orderBy: { pinnedAt: "desc" },
+    }),
+    prisma.techDoc.findMany({
+      where: { ...baseWhere, isPinned: false },
+      include: docInclude,
       orderBy,
-      include: { _count: { select: { docLikes: true } } },
       skip: (page - 1) * PAGE_SIZE,
       take: PAGE_SIZE,
     }),
-    prisma.techDoc.count({ where }),
+    prisma.techDoc.count({ where: { ...baseWhere, isPinned: false } }),
     prisma.techDoc.findMany({
       where: { published: true },
       select: { slug: true, title: true, division: true, team: true, path: true },
@@ -133,6 +143,52 @@ export default async function DocsPage({
         {/* Main content */}
         <section>
           <div className="grid auto-rows-min gap-3">
+            {pinnedDocs.map((doc) => (
+              <div
+                key={doc.id}
+                className="relative rounded-lg border border-border bg-surface p-5 transition hover:border-primary/40 [border-left-width:3px] [border-left-color:color-mix(in_srgb,#C4AC60_60%,transparent)]"
+              >
+                <Link href={`/docs/${doc.slug}`} className="absolute inset-0 z-0" aria-label={doc.title} />
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="relative z-10 inline-flex items-center gap-1 rounded border border-[#C4AC60]/30 bg-[#C4AC60]/10 px-1.5 py-0.5 text-xs font-bold text-[#C4AC60]">
+                    📌 置顶
+                  </span>
+                  <Badge tone={doc.division === "GENERAL" ? "blue" : "slate"}>
+                    {divisionLabels[doc.division]}
+                  </Badge>
+                  <Badge>{teamLabels[doc.team]}</Badge>
+                </div>
+                <h2 className="mt-3 text-xl font-black text-text-primary">
+                  <HighlightText text={doc.title} query={q} />
+                </h2>
+                <p className="mt-1 text-sm text-text-secondary">{doc.path}</p>
+                {doc.excerpt ? (
+                  <p className="mt-3 line-clamp-2 leading-7 text-text-secondary">{doc.excerpt}</p>
+                ) : null}
+                <div className="mt-3 flex flex-wrap items-center gap-3 text-sm text-text-secondary">
+                  <ThumbsUp className="size-4" />
+                  <span>{doc._count.docLikes}</span>
+                  {canPin && (
+                    <form action={toggleDocPinAction} className="relative z-10 ml-auto">
+                      <input type="hidden" name="docId" value={doc.id} />
+                      <input type="hidden" name="returnTo" value="/docs" />
+                      <SubmitButton variant="secondary" pendingText="..." className="px-2 py-1 text-xs">
+                        取消置顶
+                      </SubmitButton>
+                    </form>
+                  )}
+                </div>
+              </div>
+            ))}
+
+            {pinnedDocs.length > 0 && docs.length > 0 && (
+              <div className="flex items-center gap-2 py-1">
+                <div className="h-px flex-1 bg-border" />
+                <span className="text-xs text-text-secondary">其他文档</span>
+                <div className="h-px flex-1 bg-border" />
+              </div>
+            )}
+
             {docs.map((doc) => (
               <Link
                 key={doc.id}
@@ -158,7 +214,8 @@ export default async function DocsPage({
                 </div>
               </Link>
             ))}
-            {docs.length === 0 ? (
+
+            {pinnedDocs.length === 0 && docs.length === 0 ? (
               <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center text-text-secondary">
                 暂无匹配文档。
               </div>
