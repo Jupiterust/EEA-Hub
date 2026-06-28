@@ -166,6 +166,27 @@ export async function signOutAction() {
   await signOut({ redirectTo: "/" });
 }
 
+export async function updateProfileAction(formData: FormData) {
+  try {
+    const user = await requireUser();
+    const realName = stringValue(formData, "realName").trim();
+    const email = stringValue(formData, "email").trim() || null;
+    if (!realName) {
+      throw new Error("真实姓名不能为空");
+    }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      throw new Error("邮箱格式不正确");
+    }
+    await prisma.user.update({
+      where: { id: user.id },
+      data: { realName, email },
+    });
+    redirectWithSuccess("/dashboard", "资料已更新，姓名变更将在重新登录后生效");
+  } catch (error) {
+    redirectWithError("/dashboard", friendlyError(error, "资料更新失败，请稍后再试"));
+  }
+}
+
 export async function changePasswordAction(formData: FormData) {
   try {
     const user = await requireUser();

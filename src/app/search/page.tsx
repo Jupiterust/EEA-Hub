@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { HighlightText } from "@/components/highlight-text";
 import { Badge } from "@/components/ui";
@@ -17,11 +18,11 @@ export default async function SearchPage({
 }: {
   searchParams: Promise<{ q?: string; author?: string }>;
 }) {
-  const params = await searchParams;
+  const [params, session] = await Promise.all([searchParams, auth()]);
   const q = params.q?.trim() ?? "";
   const author = params.author?.trim() ?? "";
 
-  const [docs, posts] =
+  const [docs, posts, assignments] =
     q || author
       ? await Promise.all([
           prisma.techDoc.findMany({
@@ -54,8 +55,26 @@ export default async function SearchPage({
             },
             take: 10,
           }),
+          q && session?.user
+            ? prisma.assignment.findMany({
+                where: {
+                  title: { contains: q, mode: "insensitive" },
+                  ...(session.user.role !== "ADMIN"
+                    ? { division: session.user.division, OR: [{ team: "GENERAL" }, { team: session.user.team }] }
+                    : {}),
+                },
+                select: { id: true, title: true },
+                take: 10,
+              })
+            : Promise.resolve([]),
         ])
-      : [[], []];
+      : [[], [], []];
+
+  const results = [
+    ...docs.map((doc) => ({ type: "文档" as const, title: doc.title, href: `/docs/${doc.slug}` })),
+    ...posts.map((post) => ({ type: "帖子" as const, title: post.title, href: `/forum/${post.id}` })),
+    ...assignments.map((a) => ({ type: "作业" as const, title: a.title, href: `/assignments/${a.id}` })),
+  ];
 
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
@@ -65,7 +84,7 @@ export default async function SearchPage({
           name="q"
           defaultValue={q}
           className="flex-1 rounded-md border border-border bg-surface px-3 py-2 text-sm outline-none focus:border-primary"
-          placeholder="搜索文档和论坛"
+          placeholder="搜索文档、论坛和作业"
         />
         <input
           name="author"
@@ -76,18 +95,15 @@ export default async function SearchPage({
         <button className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-bg">搜索</button>
       </form>
       <section className="mt-6 grid gap-4">
-        {[
-          ...docs.map((doc) => ({ type: "文档" as const, title: doc.title, href: `/docs/${doc.slug}` })),
-          ...posts.map((post) => ({ type: "帖子" as const, title: post.title, href: `/forum/${post.id}` })),
-        ].map((item) => (
+        {results.map((item) => (
           <Link key={`${item.type}-${item.href}`} href={item.href} className="rounded-lg border border-border bg-surface p-4">
-            <Badge tone={item.type === "文档" ? "blue" : "amber"}>{item.type}</Badge>
+            <Badge tone={item.type === "文档" ? "blue" : item.type === "帖子" ? "amber" : "green"}>{item.type}</Badge>
             <h2 className="mt-2 font-bold text-text-primary">
               <HighlightText text={item.title} query={q} />
             </h2>
           </Link>
         ))}
-        {(q || author) && docs.length === 0 && posts.length === 0 && (
+        {(q || author) && results.length === 0 && (
           <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center text-text-secondary">
             暂无匹配结果。
           </div>

@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
-import { changePasswordAction, deleteDocAction, deleteDocCommentAction, deletePostAction, deleteReplyAction } from "@/lib/actions";
+import { changePasswordAction, deleteDocAction, deleteDocCommentAction, deletePostAction, deleteReplyAction, updateProfileAction } from "@/lib/actions";
 import { AvatarUpload } from "@/components/avatar-upload";
 import { SubmitButton } from "@/components/submit-button";
 import { ConfirmDelete } from "@/components/confirm-delete";
@@ -124,7 +124,7 @@ export default async function DashboardPage({
     }),
     prisma.user.findUnique({
       where: { id: user.id },
-      select: { avatarUrl: true },
+      select: { avatarUrl: true, realName: true, email: true },
     }),
     prisma.notification.findMany({
       where: { recipientId: user.id },
@@ -134,6 +134,8 @@ export default async function DashboardPage({
   ]);
 
   const avatarUrl: string | null = dbUser?.avatarUrl ?? null;
+  const currentRealName: string = dbUser?.realName ?? user.name ?? "";
+  const currentEmail: string = dbUser?.email ?? "";
 
   const notifications: NotificationData[] = notificationsRaw.map((n) => ({
     id: n.id,
@@ -166,6 +168,15 @@ export default async function DashboardPage({
       </section>
 
       <NotificationsSection initialNotifications={notifications} />
+
+      <section className="mt-6 rounded-lg border border-border bg-surface p-6">
+        <h2 className="text-xl font-black text-text-primary">编辑资料</h2>
+        <form action={updateProfileAction} className="mt-4 grid gap-3 sm:max-w-sm">
+          <input name="realName" defaultValue={currentRealName} placeholder="真实姓名" required className={inputClass} />
+          <input name="email" type="email" defaultValue={currentEmail} placeholder="邮箱（选填）" className={inputClass} />
+          <SubmitButton pendingText="保存中...">保存资料</SubmitButton>
+        </form>
+      </section>
 
       <section className="mt-6 rounded-lg border border-border bg-surface p-6">
         <h2 className="text-xl font-black text-text-primary">修改密码</h2>

@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import { Search } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { SubmitButton } from "@/components/submit-button";
@@ -72,6 +73,9 @@ export default async function RootLayout({
             </Link>
             <DesktopNav showAdmin={!!(session?.user && session.user.role !== "MEMBER")} />
             <div className="flex shrink-0 items-center gap-2">
+              <Link href="/search" className="rounded-md p-2 text-text-secondary hover:bg-elevated hover:text-text-primary" aria-label="全站搜索">
+                <Search className="h-5 w-5" />
+              </Link>
               {session?.user ? (
                 <>
                   <NotificationBell initialNotifications={notifications} />

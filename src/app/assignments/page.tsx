@@ -1,22 +1,30 @@
 import Link from "next/link";
-import { Plus } from "lucide-react";
+import { Plus, Search } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { requireUser } from "@/lib/authz";
+import { HighlightText } from "@/components/highlight-text";
 import { Badge, secondaryButtonClass } from "@/components/ui";
 import { divisionLabels, teamLabels } from "@/lib/labels";
 
 export const dynamic = "force-dynamic";
 
-export default async function AssignmentsPage() {
-  const user = await requireUser();
+export default async function AssignmentsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ q?: string; status?: string }>;
+}) {
+  const [user, params] = await Promise.all([requireUser(), searchParams]);
+  const q = params.q?.trim();
+  const status = params.status === "OPEN" || params.status === "CLOSED" ? params.status : undefined;
+
   const assignments = await prisma.assignment.findMany({
-    where:
-      user.role === "ADMIN"
+    where: {
+      ...(user.role === "ADMIN"
         ? {}
-        : {
-            division: user.division,
-            OR: [{ team: "GENERAL" }, { team: user.team }],
-          },
+        : { division: user.division, OR: [{ team: "GENERAL" }, { team: user.team }] }),
+      ...(q ? { title: { contains: q, mode: "insensitive" } } : {}),
+      ...(status ? { status } : {}),
+    },
     include: {
       submissions: {
         where: { studentId: user.id },
@@ -41,23 +49,55 @@ export default async function AssignmentsPage() {
           </Link>
         ) : null}
       </div>
-      <section className="mt-6 grid gap-3">
+
+      <form className="mt-6 flex flex-wrap gap-2">
+        <div className="relative min-w-0 flex-1">
+          <Search className="pointer-events-none absolute left-3 top-2.5 size-4 text-text-secondary" />
+          <input
+            name="q"
+            defaultValue={q}
+            placeholder="搜索作业标题"
+            className="w-full rounded-md border border-border py-2 pl-9 pr-3 text-sm outline-none focus:border-primary"
+          />
+        </div>
+        <select
+          name="status"
+          defaultValue={status ?? ""}
+          className="rounded-md border border-border bg-surface px-3 py-2 text-sm text-text-primary outline-none focus:border-primary"
+        >
+          <option value="">全部</option>
+          <option value="OPEN">进行中</option>
+          <option value="CLOSED">已关闭</option>
+        </select>
+        <button className={secondaryButtonClass}>筛选</button>
+      </form>
+
+      <section className="mt-4 grid gap-3">
         {assignments.map((assignment) => {
           const latest = assignment.submissions[0];
           const late = new Date() > assignment.dueAt;
           return (
-            <Link key={assignment.id} href={`/assignments/${assignment.id}`} className="rounded-lg border border-border bg-surface p-5  ">
+            <Link key={assignment.id} href={`/assignments/${assignment.id}`} className="rounded-lg border border-border bg-surface p-5">
               <div className="flex flex-wrap items-center gap-2">
-                <Badge tone={late ? "red" : "green"}>{late ? "已过截止" : "进行中"}</Badge>
+                <Badge tone={assignment.status === "CLOSED" ? "slate" : late ? "red" : "green"}>
+                  {assignment.status === "CLOSED" ? "已关闭" : late ? "已过截止" : "进行中"}
+                </Badge>
                 <Badge>{divisionLabels[assignment.division]}</Badge>
                 <Badge>{teamLabels[assignment.team]}</Badge>
                 {latest ? <Badge tone={latest.verdict === "PASS" ? "green" : latest.verdict === "FAIL" ? "red" : "amber"}>{latest.verdict === "UNREVIEWED" ? "已提交待批改" : latest.verdict}</Badge> : <Badge tone="amber">未提交</Badge>}
               </div>
-              <h2 className="mt-3 text-xl font-black text-text-primary">{assignment.title}</h2>
+              <h2 className="mt-3 text-xl font-black text-text-primary">
+                <HighlightText text={assignment.title} query={q} />
+              </h2>
               <p className="mt-2 text-sm text-text-secondary">截止：{assignment.dueAt.toLocaleString("zh-CN")} · 提交记录 {assignment._count.submissions}</p>
             </Link>
           );
         })}
+        {assignments.length === 0 && (
+          <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center text-text-secondary">
+            暂无匹配作业。
+          </div>
+        )}
       </section>
     </div>
   );

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { Plus, Search } from "lucide-react";
+import { Plus, Search, ThumbsUp } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { DocTree } from "@/components/doc-tree";
@@ -44,6 +44,7 @@ export default async function DocsPage({
         ...(params.division ? { division: params.division as never } : {}),
       },
       orderBy: [{ division: "asc" }, { team: "asc" }, { order: "asc" }, { updatedAt: "desc" }],
+      include: { _count: { select: { docLikes: true } } },
     }),
     prisma.techDoc.findMany({
       where: { published: true },
@@ -122,6 +123,10 @@ export default async function DocsPage({
               {doc.excerpt ? (
                 <p className="mt-3 line-clamp-2 leading-7 text-text-secondary">{doc.excerpt}</p>
               ) : null}
+              <div className="mt-3 flex items-center gap-1 text-sm text-text-secondary">
+                <ThumbsUp className="size-4" />
+                <span>{doc._count.docLikes}</span>
+              </div>
             </Link>
           ))}
           {docs.length === 0 ? (
