@@ -119,15 +119,18 @@ export function MarkdownEditor({
   useEffect(() => {
     if (mentionQuery === null || mentionQuery === "") return;
     const ctrl = new AbortController();
-    (async () => {
+    const timer = setTimeout(async () => {
       try {
         const res = await fetch(`/api/users/search?q=${encodeURIComponent(mentionQuery)}`, { signal: ctrl.signal });
         if (res.ok) setMentionResults(await res.json());
       } catch {
         // ignore abort / network errors
       }
-    })();
-    return () => ctrl.abort();
+    }, 300);
+    return () => {
+      clearTimeout(timer);
+      ctrl.abort();
+    };
   }, [mentionQuery]);
 
   // Close dropdown when clicking outside

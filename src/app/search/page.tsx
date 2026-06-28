@@ -16,7 +16,7 @@ const authorWhere = (author: string) => ({
   ],
 });
 
-type ResultItem = { type: "文档" | "帖子" | "作业"; title: string; href: string };
+type ResultItem = { type: "文档" | "帖子" | "作业"; title: string; href: string; excerpt?: string };
 
 export default async function SearchPage({
   searchParams,
@@ -37,7 +37,7 @@ export default async function SearchPage({
           ...(q ? { OR: [{ title: { contains: q, mode: "insensitive" } }, { content: { contains: q, mode: "insensitive" } }] } : {}),
           ...(author ? { author: authorWhere(author) } : {}),
         },
-        select: { title: true, slug: true },
+        select: { title: true, slug: true, excerpt: true, content: true },
       }),
       prisma.forumPost.findMany({
         where: {
@@ -45,7 +45,7 @@ export default async function SearchPage({
           ...(q ? { OR: [{ title: { contains: q, mode: "insensitive" } }, { content: { contains: q, mode: "insensitive" } }, { tags: { has: q } }] } : {}),
           ...(author ? { author: authorWhere(author) } : {}),
         },
-        select: { id: true, title: true },
+        select: { id: true, title: true, content: true },
       }),
       q && session?.user
         ? prisma.assignment.findMany({
@@ -61,8 +61,18 @@ export default async function SearchPage({
     ]);
 
     allResults = [
-      ...docs.map((doc) => ({ type: "文档" as const, title: doc.title, href: `/docs/${doc.slug}` })),
-      ...posts.map((post) => ({ type: "帖子" as const, title: post.title, href: `/forum/${post.id}` })),
+      ...docs.map((doc) => ({
+        type: "文档" as const,
+        title: doc.title,
+        href: `/docs/${doc.slug}`,
+        excerpt: (doc.excerpt || doc.content).slice(0, 100),
+      })),
+      ...posts.map((post) => ({
+        type: "帖子" as const,
+        title: post.title,
+        href: `/forum/${post.id}`,
+        excerpt: post.content.slice(0, 100),
+      })),
       ...assignments.map((a) => ({ type: "作业" as const, title: a.title, href: `/assignments/${a.id}` })),
     ];
   }
@@ -110,6 +120,11 @@ export default async function SearchPage({
             <h2 className="mt-2 font-bold text-text-primary">
               <HighlightText text={item.title} query={q} />
             </h2>
+            {item.excerpt && (
+              <p className="mt-1 line-clamp-2 text-sm text-text-secondary">
+                <HighlightText text={item.excerpt} query={q} />
+              </p>
+            )}
           </Link>
         ))}
         {(q || author) && results.length === 0 && (

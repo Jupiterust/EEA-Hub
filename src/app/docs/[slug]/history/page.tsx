@@ -32,6 +32,7 @@ export default async function DocHistoryPage({
     where: { docId: doc.id },
     include: { editor: { select: { id: true, realName: true, avatarUrl: true } } },
     orderBy: { createdAt: "desc" },
+    take: 50,
   });
 
   const selectedVersion = versionId

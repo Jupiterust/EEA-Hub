@@ -46,7 +46,7 @@ export default async function RootLayout({
         linkUrl: n.linkUrl,
         isRead: n.isRead,
         count: n.count,
-        createdAt: n.createdAt.toISOString(),
+        updatedAt: n.updatedAt.toISOString(),
       }))
     : [];
 

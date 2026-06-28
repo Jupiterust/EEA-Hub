@@ -161,7 +161,7 @@ export default async function DashboardPage({
     linkUrl: n.linkUrl,
     isRead: n.isRead,
     count: n.count,
-    createdAt: n.createdAt.toISOString(),
+    updatedAt: n.updatedAt.toISOString(),
   }));
 
   return (

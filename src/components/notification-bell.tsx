@@ -17,7 +17,7 @@ export type NotificationData = {
   linkUrl: string;
   isRead: boolean;
   count: number;
-  createdAt: string;
+  updatedAt: string;
 };
 
 const typeIcon: Record<string, string> = {
@@ -144,7 +144,7 @@ export function NotificationBell({ initialNotifications }: { initialNotification
                     <div className="min-w-0 flex-1">
                       <p className="text-xs leading-snug text-text-primary">{n.message}</p>
                       <p className="mt-1 text-[11px] text-text-secondary">
-                        {new Date(n.createdAt).toLocaleString("zh-CN")}
+                        {new Date(n.updatedAt).toLocaleString("zh-CN")}
                         {n.count > 1 && ` · 共 ${n.count} 次`}
                       </p>
                     </div>
@@ -230,7 +230,7 @@ export function NotificationsSection({ initialNotifications }: { initialNotifica
                 <div className="min-w-0 flex-1">
                   <p className="text-sm text-text-primary">{n.message}</p>
                   <p className="mt-0.5 text-xs text-text-secondary">
-                    {new Date(n.createdAt).toLocaleString("zh-CN")}
+                    {new Date(n.updatedAt).toLocaleString("zh-CN")}
                     {n.count > 1 && ` · 共 ${n.count} 次`}
                   </p>
                 </div>
