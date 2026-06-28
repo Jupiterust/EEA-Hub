@@ -332,7 +332,7 @@ export async function createDocAction(formData: FormData) {
       docFollowers.map((f) =>
         createNotification({
           recipientId: f.followerId,
-          type: "COMMENT",
+          type: "FOLLOW",
           message: `${user.name ?? "有用户"} 发布了新文档《${title}》`,
           linkUrl: `/docs/${doc.slug}`,
           relatedId: doc.id,
@@ -375,7 +375,7 @@ export async function createPostAction(formData: FormData) {
         postFollowers.map((f) =>
           createNotification({
             recipientId: f.followerId,
-            type: "REPLY",
+            type: "FOLLOW",
             message: `${user.name ?? "有用户"} 发布了新帖子《${post.title}》`,
             linkUrl: `/forum/${post.id}`,
             relatedId: post.id,
@@ -731,6 +731,7 @@ async function notifyMentions(
     await Promise.all(
       [...mentionMap.values()]
         .filter((u) => u.id !== senderId)
+        .slice(0, 10)
         .map((u) =>
           createNotification({
             recipientId: u.id,

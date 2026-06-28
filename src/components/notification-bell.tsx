@@ -26,7 +26,7 @@ const typeIcon: Record<string, string> = {
   LIKE: "👍",
   COMMENT: "📝",
   DEADLINE: "⏰",
-  FOLLOW: "👥",
+  FOLLOW: "🔔",
   MENTION: "@",
 };
 

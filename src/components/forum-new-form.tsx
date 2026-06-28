@@ -14,6 +14,7 @@ interface Draft {
   title: string;
   tags: string;
   content: string;
+  isAnonymous: boolean;
   savedAt: string;
 }
 
@@ -21,10 +22,11 @@ interface InitialState {
   title: string;
   tags: string;
   content: string;
+  isAnonymous: boolean;
   draftTime: string | null;
 }
 
-const EMPTY: InitialState = { title: "", tags: "", content: "", draftTime: null };
+const EMPTY: InitialState = { title: "", tags: "", content: "", isAnonymous: false, draftTime: null };
 
 function initFromStorage(hasError: boolean): InitialState {
   if (typeof window === "undefined") return EMPTY;
@@ -46,6 +48,7 @@ function initFromStorage(hasError: boolean): InitialState {
       title: draft.title ?? "",
       tags: draft.tags ?? "",
       content: draft.content ?? "",
+      isAnonymous: draft.isAnonymous ?? false,
       draftTime: draft.savedAt ?? null,
     };
   } catch {
@@ -63,6 +66,7 @@ export function ForumNewForm({ hasError }: { hasError: boolean }) {
   const [title, setTitle] = useState(initial.title);
   const [tags, setTags] = useState(initial.tags);
   const [content, setContent] = useState(initial.content);
+  const [isAnonymous, setIsAnonymous] = useState(initial.isAnonymous);
   const [draftTime, setDraftTime] = useState(initial.draftTime);
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -74,13 +78,13 @@ export function ForumNewForm({ hasError }: { hasError: boolean }) {
         localStorage.removeItem(DRAFT_KEY);
         return;
       }
-      const draft: Draft = { title, tags, content, savedAt: new Date().toISOString() };
+      const draft: Draft = { title, tags, content, isAnonymous, savedAt: new Date().toISOString() };
       localStorage.setItem(DRAFT_KEY, JSON.stringify(draft));
     }, 2000);
     return () => {
       if (saveTimer.current) clearTimeout(saveTimer.current);
     };
-  }, [title, tags, content]);
+  }, [title, tags, content, isAnonymous]);
 
   function clearDraft() {
     if (saveTimer.current) clearTimeout(saveTimer.current);
@@ -88,6 +92,7 @@ export function ForumNewForm({ hasError }: { hasError: boolean }) {
     setTitle("");
     setTags("");
     setContent("");
+    setIsAnonymous(false);
     setDraftTime(null);
   }
 
@@ -140,7 +145,13 @@ export function ForumNewForm({ hasError }: { hasError: boolean }) {
           />
         </Field>
         <label className="flex items-center gap-2 text-sm font-semibold text-text-primary">
-          <input name="isAnonymous" type="checkbox" className="size-4" />
+          <input
+            name="isAnonymous"
+            type="checkbox"
+            className="size-4"
+            checked={isAnonymous}
+            onChange={(e) => setIsAnonymous(e.target.checked)}
+          />
           匿名发布
         </label>
         <SubmitButton pendingText="发布中...">发布</SubmitButton>
