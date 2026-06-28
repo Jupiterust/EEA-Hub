@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import Script from "next/script";
 import { Search } from "lucide-react";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
@@ -55,6 +56,11 @@ export default async function RootLayout({
       lang="zh-CN"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        <link rel="manifest" href="/manifest.json" />
+        <meta name="theme-color" content="#4FD1C5" />
+        <link rel="apple-touch-icon" href="/icon-192x192.png" />
+      </head>
       <body className="min-h-full">
         <header className="sticky top-0 z-30 border-b border-border bg-surface/95 backdrop-blur">
           <div className="mx-auto flex max-w-7xl items-center justify-between gap-4 px-4 py-3 sm:px-6">
@@ -104,6 +110,13 @@ export default async function RootLayout({
           <MobileNav showAdmin={!!(session?.user && session.user.role !== "MEMBER")} />
         </header>
         <main>{children}</main>
+        <Script id="sw-register" strategy="afterInteractive">{`
+          if ('serviceWorker' in navigator) {
+            window.addEventListener('load', function() {
+              navigator.serviceWorker.register('/sw.js');
+            });
+          }
+        `}</Script>
       </body>
     </html>
   );
