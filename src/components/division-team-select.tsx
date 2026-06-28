@@ -15,15 +15,48 @@ export function DivisionTeamSelect({
   allowGeneralDivision = true,
   defaultDivision,
   defaultTeam = "GENERAL",
+  lockedDivision,
+  lockedTeam,
 }: {
   allowGeneralDivision?: boolean;
   defaultDivision?: Division;
   defaultTeam?: Team;
+  lockedDivision?: Division;
+  lockedTeam?: Team;
 }) {
-  const initialDivision = defaultDivision ?? (allowGeneralDivision ? "GENERAL" : "SOFTWARE");
+  const isLocked = lockedDivision !== undefined && lockedTeam !== undefined;
+
+  const initialDivision = isLocked
+    ? lockedDivision
+    : (defaultDivision ?? (allowGeneralDivision ? "GENERAL" : "SOFTWARE"));
   const [division, setDivision] = useState<Division>(initialDivision);
-  const teams = useMemo(() => teamOptions[division], [division]);
-  const selectedTeam = teams.includes(defaultTeam) ? defaultTeam : teams[0];
+  const teams = useMemo(() => (isLocked ? [lockedTeam] : teamOptions[division]), [isLocked, lockedTeam, division]);
+  const selectedTeam = isLocked ? lockedTeam : (teams.includes(defaultTeam) ? defaultTeam : teams[0]);
+
+  if (isLocked) {
+    return (
+      <div className="grid gap-4 sm:grid-cols-2">
+        <label className="grid gap-1.5 text-base font-semibold text-gold">
+          <span>部门</span>
+          <input type="hidden" name="division" value={lockedDivision} />
+          <input
+            readOnly
+            value={divisionLabels[lockedDivision]}
+            className={`${inputClass} cursor-not-allowed opacity-60`}
+          />
+        </label>
+        <label className="grid gap-1.5 text-base font-semibold text-gold">
+          <span>小组</span>
+          <input type="hidden" name="team" value={lockedTeam} />
+          <input
+            readOnly
+            value={teamLabels[lockedTeam]}
+            className={`${inputClass} cursor-not-allowed opacity-60`}
+          />
+        </label>
+      </div>
+    );
+  }
 
   return (
     <div className="grid gap-4 sm:grid-cols-2">

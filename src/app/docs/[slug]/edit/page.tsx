@@ -57,6 +57,8 @@ export default async function EditDocPage({
           <DivisionTeamSelect
             defaultDivision={doc.division}
             defaultTeam={doc.team}
+            lockedDivision={user.role === "MEMBER" ? user.division : undefined}
+            lockedTeam={user.role === "MEMBER" ? user.team : undefined}
           />
           <Field label="摘要">
             <textarea name="excerpt" defaultValue={doc.excerpt ?? ""} className={inputClass} rows={3} />

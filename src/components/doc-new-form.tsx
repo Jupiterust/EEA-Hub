@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import type { Division, Team } from "@prisma/client";
 import { createDocAction } from "@/lib/actions";
 import { DivisionTeamSelect } from "@/components/division-team-select";
 import { MarkdownEditor } from "@/components/markdown-editor";
@@ -67,7 +68,15 @@ function formatTime(iso: string): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export function DocNewForm({ hasError }: { hasError: boolean }) {
+export function DocNewForm({
+  hasError,
+  lockedDivision,
+  lockedTeam,
+}: {
+  hasError: boolean;
+  lockedDivision?: Division;
+  lockedTeam?: Team;
+}) {
   const [initial] = useState(() => initFromStorage(hasError));
   const [title, setTitle] = useState(initial.title);
   const [path, setPath] = useState(initial.path);
@@ -154,7 +163,7 @@ export function DocNewForm({ hasError }: { hasError: boolean }) {
             placeholder="新人学习路径 > STM32入门 > GPIO配置"
           />
         </Field>
-        <DivisionTeamSelect />
+        <DivisionTeamSelect lockedDivision={lockedDivision} lockedTeam={lockedTeam} />
         <Field label="摘要">
           <textarea
             name="excerpt"
