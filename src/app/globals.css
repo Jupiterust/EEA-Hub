@@ -49,6 +49,7 @@ body {
     radial-gradient(circle at top left, rgba(79, 209, 197, 0.12), transparent 28rem),
     radial-gradient(circle at bottom right, rgba(109, 150, 180, 0.1), transparent 30rem),
     #212733;
+  background-attachment: fixed;
   color: var(--foreground);
   font-family: Arial, Helvetica, sans-serif;
 }
