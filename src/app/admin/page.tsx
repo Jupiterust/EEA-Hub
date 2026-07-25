@@ -11,7 +11,7 @@ export const dynamic = "force-dynamic";
 export default async function AdminPage({
   searchParams,
 }: {
-  searchParams: Promise<{ invite?: string; error?: string; success?: string }>;
+  searchParams: Promise<{ error?: string; success?: string }>;
 }) {
   const user = await requireLeader();
   const params = await searchParams;
@@ -54,11 +54,6 @@ export default async function AdminPage({
   return (
     <div className="mx-auto max-w-7xl px-4 py-8 sm:px-6">
       <h1 className="text-3xl font-black text-text-primary">管理后台</h1>
-      {params.invite ? (
-        <p className="mt-4 rounded-md bg-success/15 p-3 text-sm font-semibold text-success">
-          新邀请口令：{params.invite}。页面只显示这一次，请及时发送给新成员。
-        </p>
-      ) : null}
       <div className="mt-4">
         <FeedbackBanner error={params.error} success={params.success} />
       </div>
