@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import Script from "next/script";
 import { Search } from "lucide-react";
+import { unstable_cache } from "next/cache";
 import { auth } from "@/auth";
 import { prisma } from "@/lib/prisma";
 import { SubmitButton } from "@/components/submit-button";
@@ -21,6 +22,17 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const getNotifications = unstable_cache(
+  async (userId: string) =>
+    prisma.notification.findMany({
+      where: { recipientId: userId },
+      orderBy: [{ isRead: "asc" }, { updatedAt: "desc" }],
+      take: 20,
+    }),
+  ["notifications"],
+  { revalidate: 5 }
+);
+
 export const metadata: Metadata = {
   title: "电协 Hub",
   description: "电气与电子信息协会内部资料、论坛与作业平台",
@@ -34,20 +46,14 @@ export default async function RootLayout({
   const session = await auth();
 
   const notifications: NotificationData[] = session?.user?.id
-    ? (
-        await prisma.notification.findMany({
-          where: { recipientId: session.user.id },
-          orderBy: [{ isRead: "asc" }, { updatedAt: "desc" }],
-          take: 20,
-        })
-      ).map((n) => ({
+    ? (await getNotifications(session.user.id)).map((n) => ({
         id: n.id,
         type: n.type as NotificationData["type"],
         message: n.message,
         linkUrl: n.linkUrl,
         isRead: n.isRead,
         count: n.count,
-        updatedAt: n.updatedAt.toISOString(),
+        updatedAt: new Date(n.updatedAt).toISOString(),
       }))
     : [];
 
