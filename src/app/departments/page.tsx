@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 
 export const dynamic = "force-dynamic";
@@ -19,6 +20,7 @@ const departments = [
 ] as const;
 
 export default async function DepartmentsPage() {
+  await requireUser();
   const [docs, assignments] = await Promise.all([
     prisma.techDoc.findMany({ orderBy: { updatedAt: "desc" }, take: 6 }),
     prisma.assignment.findMany({ orderBy: { createdAt: "desc" }, take: 6 }),

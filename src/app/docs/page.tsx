@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Plus, Search, ThumbsUp } from "lucide-react";
-import { auth } from "@/auth";
+import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { toggleDocPinAction } from "@/lib/actions";
 import { DocTree } from "@/components/doc-tree";
@@ -19,11 +19,12 @@ export default async function DocsPage({
 }: {
   searchParams: Promise<{ q?: string; author?: string; division?: string; page?: string }>;
 }) {
-  const [session, params] = await Promise.all([auth(), searchParams]);
+  const user = await requireUser();
+  const params = await searchParams;
   const q = params.q?.trim();
   const author = params.author?.trim();
   const page = Math.max(1, parseInt(params.page ?? "1", 10) || 1);
-  const userRole = session?.user?.role;
+  const userRole = user.role;
   const canPin = userRole === "LEADER" || userRole === "ADMIN";
 
   const baseWhere = {
@@ -126,7 +127,7 @@ export default async function DocsPage({
               </select>
               <button className={secondaryButtonClass}>筛选</button>
             </form>
-            {session?.user ? (
+            {user ? (
               <Link href="/docs/new" className={`${secondaryButtonClass} mt-4 w-full gap-2`}>
                 <Plus className="size-4" /> 新建文档
               </Link>

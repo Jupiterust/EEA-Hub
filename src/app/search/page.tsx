@@ -1,5 +1,6 @@
 import Link from "next/link";
 import { auth } from "@/auth";
+import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { HighlightText } from "@/components/highlight-text";
 import { Pagination } from "@/components/pagination";
@@ -23,6 +24,7 @@ export default async function SearchPage({
 }: {
   searchParams: Promise<{ q?: string; author?: string; page?: string }>;
 }) {
+  await requireUser();
   const [params, session] = await Promise.all([searchParams, auth()]);
   const q = params.q?.trim() ?? "";
   const author = params.author?.trim() ?? "";

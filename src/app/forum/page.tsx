@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { MessageSquare, Plus, Search, ThumbsUp } from "lucide-react";
 import { auth } from "@/auth";
+import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { togglePinAction } from "@/lib/actions";
 import { Avatar } from "@/components/avatar";
@@ -27,6 +28,7 @@ export default async function ForumPage({
 }: {
   searchParams: Promise<{ q?: string; author?: string; sort?: string; page?: string }>;
 }) {
+  await requireUser();
   const [params, session] = await Promise.all([searchParams, auth()]);
   const q = params.q?.trim();
   const author = params.author?.trim();
