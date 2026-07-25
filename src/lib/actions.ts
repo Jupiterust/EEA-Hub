@@ -247,7 +247,7 @@ export async function createInviteAction(formData: FormData) {
       },
     });
     revalidatePath("/admin");
-    redirect(`/admin?invite=${encodeURIComponent(rawCode)}`);
+    redirectWithSuccess("/admin", `邀请口令已创建：${rawCode}`);
   } catch (error) {
     redirectWithError("/admin", friendlyError(error, "邀请口令生成失败,请稍后再试"));
   }

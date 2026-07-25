@@ -41,7 +41,8 @@ export async function uploadObject(file: File, prefix: string) {
   });
 
   if (!res.ok) {
-    throw new Error(`文件上传失败：${await res.text()}`);
+    console.error("Supabase upload error:", res.status, await res.text());
+    throw new Error("文件上传失败，请稍后再试");
   }
 
   return {
@@ -84,7 +85,8 @@ async function uploadObjectWithType(file: File, prefix: string, contentType: str
   });
 
   if (!res.ok) {
-    throw new Error(`文件上传失败：${await res.text()}`);
+    console.error("Supabase upload error:", res.status, await res.text());
+    throw new Error("文件上传失败，请稍后再试");
   }
 
   return {
