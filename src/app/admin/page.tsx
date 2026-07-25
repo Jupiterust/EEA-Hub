@@ -16,7 +16,26 @@ export default async function AdminPage({
   const user = await requireLeader();
   const params = await searchParams;
   const [users, invites, reports, audits] = await Promise.all([
-    prisma.user.findMany({ orderBy: { createdAt: "desc" }, take: 80 }),
+    prisma.user.findMany({
+      orderBy: { createdAt: "desc" },
+      take: 80,
+      select: {
+        id: true,
+        username: true,
+        realName: true,
+        email: true,
+        role: true,
+        status: true,
+        division: true,
+        team: true,
+        bannedReason: true,
+        avatarUrl: true,
+        createdAt: true,
+        approvedAt: true,
+        approvedById: true,
+        inviteCode: { select: { label: true } },
+      },
+    }),
     prisma.inviteCode.findMany({ orderBy: { createdAt: "desc" }, take: 20 }),
     prisma.report.findMany({
       where: { status: "OPEN" },
