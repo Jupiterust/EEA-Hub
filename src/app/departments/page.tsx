@@ -2,7 +2,7 @@ import Link from "next/link";
 import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 const departments = [
   {

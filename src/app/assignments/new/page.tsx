@@ -5,7 +5,7 @@ import { FeedbackBanner } from "@/components/feedback-banner";
 import { SubmitButton } from "@/components/submit-button";
 import { Field, inputClass } from "@/components/ui";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 export default async function NewAssignmentPage({
   searchParams,

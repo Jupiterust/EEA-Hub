@@ -2,7 +2,7 @@ import { requireUser } from "@/lib/authz";
 import { FeedbackBanner } from "@/components/feedback-banner";
 import { ForumNewForm } from "@/components/forum-new-form";
 
-export const dynamic = "force-dynamic";
+export const revalidate = 60;
 
 export default async function NewPostPage({
   searchParams,
