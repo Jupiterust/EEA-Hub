@@ -34,7 +34,6 @@ export function Avatar({
       height={px}
       className="shrink-0 rounded-full object-cover ring-1 ring-border"
       style={{ width: px, height: px }}
-      unoptimized={src.startsWith("http")}
     />
   );
 }

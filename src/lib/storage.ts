@@ -19,36 +19,7 @@ export async function uploadObject(file: File, prefix: string) {
     throw new Error("仅支持 zip、pdf、doc、docx 等作业文件");
   }
 
-  const supabaseUrl = process.env.SUPABASE_URL;
-  const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  const bucket = process.env.SUPABASE_STORAGE_BUCKET;
-  if (!supabaseUrl || !serviceKey || !bucket) {
-    throw new Error("对象存储未配置，请设置 Supabase Storage 环境变量");
-  }
-
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const path = `${prefix}/${Date.now()}-${crypto.randomUUID()}-${safeName}`;
-  const uploadUrl = `${supabaseUrl}/storage/v1/object/${bucket}/${path}`;
-  const res = await fetch(uploadUrl, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${serviceKey}`,
-      apikey: serviceKey,
-      "Content-Type": file.type || "application/octet-stream",
-      "x-upsert": "false",
-    },
-    body: await file.arrayBuffer(),
-  });
-
-  if (!res.ok) {
-    console.error("Supabase upload error:", res.status, await res.text());
-    throw new Error("文件上传失败，请稍后再试");
-  }
-
-  return {
-    url: `${supabaseUrl}/storage/v1/object/public/${bucket}/${path}`,
-    path,
-  };
+  return uploadObjectWithType(file, prefix, file.type || "application/octet-stream");
 }
 
 export async function uploadImageObject(file: File, prefix: string) {
