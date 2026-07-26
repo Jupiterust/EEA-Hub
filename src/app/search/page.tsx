@@ -3,12 +3,9 @@ import { auth } from "@/auth";
 import { requireUser } from "@/lib/authz";
 import { prisma } from "@/lib/prisma";
 import { HighlightText } from "@/components/highlight-text";
-import { Pagination } from "@/components/pagination";
 import { Badge } from "@/components/ui";
 
 export const dynamic = "force-dynamic";
-
-const PAGE_SIZE = 10;
 
 const authorWhere = (author: string) => ({
   OR: [
@@ -22,13 +19,12 @@ type ResultItem = { type: "文档" | "帖子" | "作业"; title: string; href: s
 export default async function SearchPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; author?: string; page?: string }>;
+  searchParams: Promise<{ q?: string; author?: string }>;
 }) {
   await requireUser();
   const [params, session] = await Promise.all([searchParams, auth()]);
   const q = params.q?.trim() ?? "";
   const author = params.author?.trim() ?? "";
-  const page = Math.max(1, parseInt(params.page ?? "1", 10) || 1);
 
   let allResults: ResultItem[] = [];
 
@@ -40,6 +36,7 @@ export default async function SearchPage({
           ...(author ? { author: authorWhere(author) } : {}),
         },
         select: { title: true, slug: true, excerpt: true, content: true },
+        take: 50,
       }),
       prisma.forumPost.findMany({
         where: {
@@ -48,6 +45,7 @@ export default async function SearchPage({
           ...(author ? { author: authorWhere(author) } : {}),
         },
         select: { id: true, title: true, content: true },
+        take: 50,
       }),
       q && session?.user
         ? prisma.assignment.findMany({
@@ -58,6 +56,7 @@ export default async function SearchPage({
                 : {}),
             },
             select: { id: true, title: true },
+            take: 50,
           })
         : Promise.resolve([]),
     ]);
@@ -79,19 +78,6 @@ export default async function SearchPage({
     ];
   }
 
-  const total = allResults.length;
-  const totalPages = Math.ceil(total / PAGE_SIZE);
-  const results = allResults.slice((page - 1) * PAGE_SIZE, page * PAGE_SIZE);
-
-  function buildHref(p: number) {
-    const sp = new URLSearchParams();
-    if (q) sp.set("q", q);
-    if (author) sp.set("author", author);
-    if (p > 1) sp.set("page", String(p));
-    const qs = sp.toString();
-    return `/search${qs ? `?${qs}` : ""}`;
-  }
-
   return (
     <div className="mx-auto max-w-5xl px-4 py-8 sm:px-6">
       <h1 className="text-3xl font-black text-text-primary">全站搜索</h1>
@@ -111,12 +97,12 @@ export default async function SearchPage({
         <button className="rounded-md bg-primary px-4 py-2 text-sm font-semibold text-bg">搜索</button>
       </form>
 
-      {(q || author) && total > 0 && (
-        <p className="mt-4 text-sm text-text-secondary">共 {total} 条结果</p>
+      {(q || author) && allResults.length > 0 && (
+        <p className="mt-4 text-sm text-text-secondary">共 {allResults.length} 条结果（每类最多 50 条）</p>
       )}
 
       <section className="mt-4 grid gap-4">
-        {results.map((item) => (
+        {allResults.map((item) => (
           <Link key={`${item.type}-${item.href}`} href={item.href} className="rounded-lg border border-border bg-surface p-4">
             <Badge tone={item.type === "文档" ? "blue" : item.type === "帖子" ? "amber" : "green"}>{item.type}</Badge>
             <h2 className="mt-2 font-bold text-text-primary">
@@ -129,14 +115,13 @@ export default async function SearchPage({
             )}
           </Link>
         ))}
-        {(q || author) && results.length === 0 && (
+        {(q || author) && allResults.length === 0 && (
           <div className="rounded-lg border border-dashed border-border bg-surface p-10 text-center text-text-secondary">
             暂无匹配结果。
           </div>
         )}
       </section>
 
-      <Pagination page={page} totalPages={totalPages} buildHref={buildHref} />
     </div>
   );
 }

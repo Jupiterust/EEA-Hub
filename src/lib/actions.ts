@@ -540,6 +540,13 @@ export async function submitAssignmentAction(formData: FormData) {
   try {
     const user = await requireUser();
     const assignment = await prisma.assignment.findUniqueOrThrow({ where: { id: assignmentId } });
+    if (
+      user.role !== "ADMIN" &&
+      (assignment.division !== user.division ||
+        (assignment.team !== "GENERAL" && assignment.team !== user.team))
+    ) {
+      throw new Error("无权提交该作业");
+    }
     if (assignment.status === "CLOSED") {
       throw new Error("作业已关闭，无法提交");
     }
@@ -763,15 +770,14 @@ async function notifyMentions(
 
 async function uniqueDocSlug(value: string) {
   const base = slugify(value) || `doc-${Date.now().toString(36)}-${crypto.randomUUID().slice(0, 6)}`;
+  const existing = await prisma.techDoc.findMany({
+    where: { slug: { startsWith: base } },
+    select: { slug: true },
+  });
+  const taken = new Set(existing.map((d) => d.slug));
   let candidate = base;
   for (let index = 2; index <= 50; index += 1) {
-    const existing = await prisma.techDoc.findUnique({
-      where: { slug: candidate },
-      select: { id: true },
-    });
-    if (!existing) {
-      return candidate;
-    }
+    if (!taken.has(candidate)) return candidate;
     candidate = `${base}-${index}`;
   }
   return `${base}-${crypto.randomUUID().slice(0, 8)}`;
@@ -1428,11 +1434,12 @@ export async function toggleDocPinAction(formData: FormData) {
   const docId = stringValue(formData, "docId");
   const returnTo = safeReturnTo(formData, "/docs");
   try {
-    await requireLeader();
+    const user = await requireLeader();
     const doc = await prisma.techDoc.findUniqueOrThrow({
       where: { id: docId },
-      select: { isPinned: true, slug: true },
+      select: { isPinned: true, slug: true, division: true, team: true },
     });
+    if (!canManageScope(user, doc)) throw new Error("无权置顶该内容");
     if (doc.isPinned) {
       await prisma.techDoc.update({
         where: { id: docId },
@@ -1458,11 +1465,12 @@ export async function togglePinAction(formData: FormData) {
   const postId = stringValue(formData, "postId");
   const returnTo = safeReturnTo(formData, postId ? `/forum/${postId}` : "/forum");
   try {
-    await requireLeader();
+    const user = await requireLeader();
     const post = await prisma.forumPost.findUniqueOrThrow({
       where: { id: postId },
-      select: { isPinned: true },
+      select: { isPinned: true, division: true, team: true },
     });
+    if (!canManageScope(user, post)) throw new Error("无权置顶该内容");
     if (post.isPinned) {
       await prisma.forumPost.update({
         where: { id: postId },
