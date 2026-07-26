@@ -117,13 +117,6 @@ export async function registerAction(formData: FormData) {
       throw new Error("邀请口令无效或已过期");
     }
 
-    if (data.email) {
-      const existingEmail = await prisma.user.findFirst({ where: { email: data.email } });
-      if (existingEmail) {
-        throw new Error("该邮箱已被注册");
-      }
-    }
-
     await prisma.$transaction([
       prisma.user.create({
         data: {
@@ -303,11 +296,7 @@ export async function createDocAction(formData: FormData) {
     const user = await requireUser();
     const division = divisionEnum.parse(stringValue(formData, "division"));
     const team = teamEnum.parse(stringValue(formData, "team"));
-    if (user.role === "MEMBER") {
-      if (division !== user.division || (team !== user.team && team !== "GENERAL")) {
-        throw new Error("普通成员只能在自己所属的部门/小组发布文档");
-      }
-    } else if (!canManageScope(user, { division, team })) {
+    if (!canManageScope(user, { division, team })) {
       throw new Error("无权发布该范围文档");
     }
     const title = stringValue(formData, "title");
@@ -356,11 +345,14 @@ export async function createPostAction(formData: FormData) {
     const user = await requireUser();
     const isAnonymous = boolValue(formData, "isAnonymous");
     const title = stringValue(formData, "title");
+    if (!title?.trim()) throw new Error("标题不能为空");
+    const content = stringValue(formData, "content");
+    if (!content?.trim()) throw new Error("内容不能为空");
     const imageUrls = await uploadForumImages(formData, `forum/posts/${user.id}`);
     const post = await prisma.forumPost.create({
       data: {
         title,
-        content: stringValue(formData, "content"),
+        content,
         division: divisionEnum.parse(stringValue(formData, "division") || "GENERAL"),
         team: teamEnum.parse(stringValue(formData, "team") || "GENERAL"),
         tags: stringValue(formData, "tags").split(/[,\s]+/).filter(Boolean).slice(0, 8),
@@ -804,6 +796,18 @@ async function createNotification(data: {
   relatedId: string;
 }) {
   try {
+    const count = await prisma.notification.count({ where: { recipientId: data.recipientId } });
+    if (count > 200) {
+      const oldest = await prisma.notification.findMany({
+        where: { recipientId: data.recipientId },
+        orderBy: { createdAt: "asc" },
+        take: 50,
+        select: { id: true },
+      });
+      await prisma.notification.deleteMany({
+        where: { id: { in: oldest.map((n) => n.id) } },
+      });
+    }
     await prisma.notification.create({ data });
   } catch {
     // notification failure must never break the main action
@@ -994,9 +998,17 @@ export async function updateReplyAction(formData: FormData) {
     const content = stringValue(formData, "content");
     if (!content) throw new Error("回复内容不能为空");
 
+    const keepImages = formData
+      .getAll("keepImage")
+      .filter((v): v is string => typeof v === "string");
+    const newImageUrls = await uploadForumImages(formData, `forum/posts/${user.id}`);
+    if (keepImages.length + newImageUrls.length > 9) {
+      throw new Error("最多保留 9 张图片");
+    }
+
     await prisma.forumReply.update({
       where: { id: replyId },
-      data: { content },
+      data: { content, imageUrls: [...keepImages, ...newImageUrls] },
     });
 
     revalidatePath(`/forum/${postId}`);
@@ -1426,7 +1438,8 @@ export async function toggleFollowAction(followingId: string) {
     revalidatePath(`/profile/${user.id}`);
   } catch (error) {
     if (isNextRedirectError(error)) throw error;
-    // follow toggle failure is non-critical; swallow silently
+    console.error("toggleFollowAction error:", error);
+    return { error: "操作失败" };
   }
 }
 
